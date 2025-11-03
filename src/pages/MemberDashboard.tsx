@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw } from "lucide-react";
+import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical } from "lucide-react";
 
 type SubmissionMode = "text" | "audio" | "image";
 type SubmissionStatus = "submitted" | "pending" | "missed" | "on_leave";
@@ -40,6 +40,9 @@ const MemberDashboard = () => {
   const [submissionMode, setSubmissionMode] = useState<SubmissionMode>("text");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
+  const [testMode, setTestMode] = useState(() => {
+    return localStorage.getItem("testMode") === "true";
+  });
   
   // Text mode state
   const [standupData, setStandupData] = useState<StandupData>({
@@ -187,6 +190,8 @@ const MemberDashboard = () => {
   };
 
   const isWithinSubmissionWindow = () => {
+    if (testMode) return true; // Bypass time check in test mode
+    
     const now = new Date();
     const startTime = new Date();
     startTime.setHours(8, 0, 0, 0);
@@ -194,6 +199,13 @@ const MemberDashboard = () => {
     endTime.setHours(10, 0, 0, 0);
     
     return now >= startTime && now < endTime;
+  };
+
+  const toggleTestMode = () => {
+    const newTestMode = !testMode;
+    setTestMode(newTestMode);
+    localStorage.setItem("testMode", newTestMode.toString());
+    toast.success(newTestMode ? "Test mode enabled" : "Test mode disabled");
   };
 
   const handleTextSubmit = async () => {
@@ -400,15 +412,37 @@ const MemberDashboard = () => {
               <p className="text-sm text-muted-foreground">Welcome, {user?.full_name}</p>
             </div>
           </div>
-          <Button onClick={handleLogout} variant="outline">
-            <LogOut className="w-4 h-4 mr-2" />
-            Logout
-          </Button>
+          <div className="flex items-center gap-2">
+            {import.meta.env.DEV && (
+              <Button 
+                onClick={toggleTestMode} 
+                variant={testMode ? "default" : "outline"}
+                size="sm"
+              >
+                <FlaskConical className="w-4 h-4 mr-2" />
+                Test Mode
+              </Button>
+            )}
+            <Button onClick={handleLogout} variant="outline">
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid gap-6">
+          {/* Test Mode Warning Banner */}
+          {testMode && (
+            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 flex items-center gap-2">
+              <FlaskConical className="w-5 h-5 text-yellow-600" />
+              <p className="text-sm font-medium text-yellow-600">
+                ⚠️ TEST MODE - Time window check disabled
+              </p>
+            </div>
+          )}
+
           {/* Today's Status Card */}
           <Card>
             <CardHeader>
