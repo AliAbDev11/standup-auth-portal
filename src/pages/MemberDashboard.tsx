@@ -7,6 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 type SubmissionMode = "text" | "audio" | "image";
 type SubmissionStatus = "submitted" | "pending" | "missed" | "on_leave";
@@ -205,6 +207,7 @@ const MemberDashboard = () => {
     const newTestMode = !testMode;
     setTestMode(newTestMode);
     localStorage.setItem("testMode", newTestMode.toString());
+    console.log('Test mode:', newTestMode);
     toast.success(newTestMode ? "Test mode enabled" : "Test mode disabled");
   };
 
@@ -397,7 +400,8 @@ const MemberDashboard = () => {
 
   const timeRemaining = getTimeRemaining();
   const withinWindow = isWithinSubmissionWindow();
-  const canSubmit = todayStatus === "pending" && withinWindow;
+  // In test mode, force the form to show regardless of submission status
+  const canSubmit = testMode || (todayStatus === "pending" && withinWindow);
 
   return (
     <div className="min-h-screen bg-background">
@@ -412,17 +416,21 @@ const MemberDashboard = () => {
               <p className="text-sm text-muted-foreground">Welcome, {user?.full_name}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {import.meta.env.DEV && (
-              <Button 
-                onClick={toggleTestMode} 
-                variant={testMode ? "default" : "outline"}
-                size="sm"
-              >
-                <FlaskConical className="w-4 h-4 mr-2" />
-                Test Mode
-              </Button>
-            )}
+          <div className="flex items-center gap-4">
+            {/* Test Mode Toggle - Always visible */}
+            <div className="flex items-center gap-3 px-4 py-2 border rounded-lg bg-card">
+              <FlaskConical className={`w-5 h-5 ${testMode ? 'text-yellow-600' : 'text-muted-foreground'}`} />
+              <div className="flex items-center gap-2">
+                <Label htmlFor="test-mode" className="text-sm font-medium cursor-pointer">
+                  Test Mode
+                </Label>
+                <Switch 
+                  id="test-mode"
+                  checked={testMode}
+                  onCheckedChange={toggleTestMode}
+                />
+              </div>
+            </div>
             <Button onClick={handleLogout} variant="outline">
               <LogOut className="w-4 h-4 mr-2" />
               Logout
@@ -435,10 +443,10 @@ const MemberDashboard = () => {
         <div className="grid gap-6">
           {/* Test Mode Warning Banner */}
           {testMode && (
-            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 flex items-center gap-2">
-              <FlaskConical className="w-5 h-5 text-yellow-600" />
-              <p className="text-sm font-medium text-yellow-600">
-                ⚠️ TEST MODE - Time window check disabled
+            <div className="bg-yellow-500/10 border-2 border-yellow-500 rounded-lg p-4 flex items-center gap-3">
+              <FlaskConical className="w-6 h-6 text-yellow-600" />
+              <p className="text-base font-semibold text-yellow-700">
+                ⚠️ TEST MODE ACTIVE - Time restrictions disabled
               </p>
             </div>
           )}
