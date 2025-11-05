@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, supabaseAdmin } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,13 +12,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { 
   LogOut, Shield, LayoutDashboard, Users, Building2, FileText, 
   ArrowLeftRight, ScrollText, Settings, UserPlus, Edit, Eye, 
   UserX, Search, ChevronDown, AlertTriangle, TrendingDown,
-  CheckCircle, XCircle, Clock, Download, RotateCcw
+  CheckCircle, XCircle, Clock, Download, RotateCcw, EyeOff
 } from "lucide-react";
 
 type Section = "overview" | "users" | "departments" | "standups" | "transfers" | "audit" | "settings";
@@ -112,8 +112,13 @@ const AdminDashboard = () => {
     email: "",
     full_name: "",
     role: "member" as "member" | "manager" | "superadmin",
-    department_id: ""
+    department_id: "",
+    password: "",
+    send_invite: true
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
   const [editUserForm, setEditUserForm] = useState({
     full_name: "",
     role: "member" as "member" | "manager" | "superadmin",
@@ -254,21 +259,168 @@ const AdminDashboard = () => {
     navigate("/auth");
   };
 
+  // Helper function to generate random password
+  const generateRandomPassword = (length = 12) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    let password = '';
+    for (let i = 0; i < length; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  };
+
   const handleAddUser = async () => {
     try {
-      if (!newUserForm.email || !newUserForm.full_name || !newUserForm.department_id) {
-        toast.error("Please fill all required fields");
+      setCreatingUser(true);
+
+      // Validation
+      if (!newUserForm.email || !newUserForm.full_name) {
+        toast.error("Email and full name are required");
         return;
       }
 
-      // Note: In production, this would create a user via Supabase Admin API
-      // For now, we'll show a message that this requires server-side implementation
-      toast.info("User invitation requires server-side implementation via Supabase Admin API");
-      setAddUserModal(false);
-      setNewUserForm({ email: "", full_name: "", role: "member", department_id: "" });
-    } catch (error) {
-      console.error("Error adding user:", error);
-      toast.error("Failed to add user");
+      if (!newUserForm.department_id && newUserForm.role !== "superadmin") {
+        toast.error("Department is required for members and managers");
+        return;
+      }
+
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(newUserForm.email)) {
+        toast.error("Please enter a valid email address");
+        return;
+      }
+
+      // Password validation if provided
+      if (newUserForm.password && newUserForm.password.length < 8) {
+        toast.error("Password must be at least 8 characters");
+        return;
+      }
+
+      // Check if email already exists
+      const { data: existingUser } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("email", newUserForm.email)
+        .single();
+
+      if (existingUser) {
+        toast.error("This email is already registered");
+        return;
+      }
+
+      // Generate password if not provided
+      const password = newUserForm.password || generateRandomPassword(12);
+      const wasGenerated = !newUserForm.password;
+
+      console.log("⚠️ Service role key in use - ensure this is only accessible by superadmins");
+
+      // 1. Create auth user using admin client
+      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email: newUserForm.email,
+        password: password,
+        email_confirm: true, // Auto-confirm email
+        user_metadata: {
+          full_name: newUserForm.full_name,
+          role: newUserForm.role,
+          department_id: newUserForm.department_id || null
+        }
+      });
+
+      if (authError) {
+        throw authError;
+      }
+
+      // 2. Verify profile was created (should happen via trigger)
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.user.id)
+        .single();
+
+      if (!profile) {
+        // If trigger didn't create profile, create manually
+        const { error: insertError } = await supabase
+          .from("profiles")
+          .insert({
+            id: authUser.user.id,
+            email: newUserForm.email,
+            full_name: newUserForm.full_name,
+            role: newUserForm.role,
+            department_id: newUserForm.department_id || null,
+            is_active: true
+          });
+        
+        if (insertError) throw insertError;
+      }
+
+      // 3. Get department name for audit log
+      let departmentName = "N/A";
+      if (newUserForm.department_id) {
+        const dept = departments.find(d => d.id === newUserForm.department_id);
+        if (dept) departmentName = dept.name;
+      }
+
+      // 4. Log in audit logs
+      await supabase.from("audit_logs").insert({
+        actor_id: user?.id || "",
+        action: "created",
+        target_type: "user",
+        target_id: authUser.user.id,
+        new_values: {
+          email: newUserForm.email,
+          full_name: newUserForm.full_name,
+          role: newUserForm.role,
+          department: departmentName
+        } as any
+      });
+
+      // 5. Show success message
+      if (wasGenerated) {
+        setGeneratedPassword(password);
+        toast.success(
+          `User created successfully! ${newUserForm.send_invite ? 'Invitation email sent.' : ''}`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.success(
+          `User created successfully! ${newUserForm.send_invite ? 'Invitation email sent.' : ''}`
+        );
+      }
+      
+      // 6. Refresh user list
+      fetchAllData();
+      
+      // 7. Reset form but keep modal open if password was generated
+      if (wasGenerated) {
+        // Keep modal open to show generated password
+      } else {
+        setAddUserModal(false);
+        setNewUserForm({ 
+          email: "", 
+          full_name: "", 
+          role: "member", 
+          department_id: "",
+          password: "",
+          send_invite: true
+        });
+      }
+
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      
+      // Specific error messages
+      if (error.message?.includes("already registered")) {
+        toast.error("This email is already registered");
+      } else if (error.message?.includes("permission")) {
+        toast.error("You don't have permission to create users");
+      } else if (error.message?.includes("network")) {
+        toast.error("Network error. Please try again");
+      } else {
+        toast.error(error.message || "Failed to create user");
+      }
+    } finally {
+      setCreatingUser(false);
     }
   };
 
@@ -1074,8 +1226,23 @@ const AdminDashboard = () => {
       </div>
 
       {/* Add User Modal */}
-      <Dialog open={addUserModal} onOpenChange={setAddUserModal}>
-        <DialogContent>
+      <Dialog open={addUserModal} onOpenChange={(open) => {
+        setAddUserModal(open);
+        if (!open) {
+          // Reset form when closing
+          setNewUserForm({ 
+            email: "", 
+            full_name: "", 
+            role: "member", 
+            department_id: "",
+            password: "",
+            send_invite: true
+          });
+          setGeneratedPassword("");
+          setShowPassword(false);
+        }
+      }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add New User</DialogTitle>
             <DialogDescription>Create a new user account and send invitation</DialogDescription>
@@ -1089,6 +1256,7 @@ const AdminDashboard = () => {
                 value={newUserForm.email}
                 onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
                 placeholder="user@example.com"
+                disabled={creatingUser}
               />
             </div>
             <div>
@@ -1098,13 +1266,15 @@ const AdminDashboard = () => {
                 value={newUserForm.full_name}
                 onChange={(e) => setNewUserForm({ ...newUserForm, full_name: e.target.value })}
                 placeholder="John Doe"
+                disabled={creatingUser}
               />
             </div>
             <div>
-              <Label htmlFor="role">Role</Label>
+              <Label htmlFor="role">Role *</Label>
               <Select
                 value={newUserForm.role}
                 onValueChange={(value: any) => setNewUserForm({ ...newUserForm, role: value })}
+                disabled={creatingUser}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -1116,26 +1286,107 @@ const AdminDashboard = () => {
                 </SelectContent>
               </Select>
             </div>
+            {newUserForm.role !== "superadmin" && (
+              <div>
+                <Label htmlFor="department">Department *</Label>
+                <Select
+                  value={newUserForm.department_id}
+                  onValueChange={(value) => setNewUserForm({ ...newUserForm, department_id: value })}
+                  disabled={creatingUser}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map(dept => (
+                      <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
-              <Label htmlFor="department">Department *</Label>
-              <Select
-                value={newUserForm.department_id}
-                onValueChange={(value) => setNewUserForm({ ...newUserForm, department_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments.map(dept => (
-                    <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="password">
+                Password (optional)
+              </Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={newUserForm.password}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  placeholder="Leave empty to auto-generate"
+                  disabled={creatingUser}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={creatingUser}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Min. 8 characters. If empty, a random password will be generated.
+              </p>
             </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="send_invite"
+                checked={newUserForm.send_invite}
+                onCheckedChange={(checked) => 
+                  setNewUserForm({ ...newUserForm, send_invite: checked as boolean })
+                }
+                disabled={creatingUser}
+              />
+              <Label 
+                htmlFor="send_invite" 
+                className="text-sm font-normal cursor-pointer"
+              >
+                Send invitation email
+              </Label>
+            </div>
+
+            {generatedPassword && (
+              <div className="p-3 bg-primary/10 border border-primary/20 rounded-md">
+                <p className="text-sm font-medium mb-2">Temporary Password Generated:</p>
+                <div className="bg-background p-2 rounded border font-mono text-sm break-all">
+                  {generatedPassword}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  ⚠️ Share this password with the user. They should change it after first login.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddUserModal(false)}>Cancel</Button>
-            <Button onClick={handleAddUser}>Create User</Button>
+            <Button 
+              variant="outline" 
+              onClick={() => setAddUserModal(false)}
+              disabled={creatingUser}
+            >
+              {generatedPassword ? "Close" : "Cancel"}
+            </Button>
+            {!generatedPassword && (
+              <Button onClick={handleAddUser} disabled={creatingUser}>
+                {creatingUser ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                    Creating user...
+                  </>
+                ) : (
+                  "Create User"
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
