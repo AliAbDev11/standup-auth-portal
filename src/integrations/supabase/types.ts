@@ -52,44 +52,62 @@ export type Database = {
       }
       daily_standups: {
         Row: {
+          ai_processed: boolean | null
           blockers: string | null
           created_at: string | null
           date: string
           deleted_at: string | null
           deleted_by: string | null
           id: string
+          media_filename: string | null
+          media_url: string | null
           next_steps: string | null
+          processing_status: string | null
           status: Database["public"]["Enums"]["standup_status"] | null
+          submission_type: string | null
           submitted_at: string | null
           today_plan: string
+          transcription: string | null
           user_id: string
           yesterday_work: string
         }
         Insert: {
+          ai_processed?: boolean | null
           blockers?: string | null
           created_at?: string | null
           date: string
           deleted_at?: string | null
           deleted_by?: string | null
           id?: string
+          media_filename?: string | null
+          media_url?: string | null
           next_steps?: string | null
+          processing_status?: string | null
           status?: Database["public"]["Enums"]["standup_status"] | null
+          submission_type?: string | null
           submitted_at?: string | null
           today_plan: string
+          transcription?: string | null
           user_id: string
           yesterday_work: string
         }
         Update: {
+          ai_processed?: boolean | null
           blockers?: string | null
           created_at?: string | null
           date?: string
           deleted_at?: string | null
           deleted_by?: string | null
           id?: string
+          media_filename?: string | null
+          media_url?: string | null
           next_steps?: string | null
+          processing_status?: string | null
           status?: Database["public"]["Enums"]["standup_status"] | null
+          submission_type?: string | null
           submitted_at?: string | null
           today_plan?: string
+          transcription?: string | null
           user_id?: string
           yesterday_work?: string
         }
