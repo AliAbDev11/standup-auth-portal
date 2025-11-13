@@ -232,6 +232,15 @@ const MemberDashboard = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
+      // In test mode, delete any existing submission for today to allow resubmission
+      if (testMode) {
+        await supabase
+          .from("daily_standups")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("date", today);
+      }
+      
       const { error } = await supabase
         .from("daily_standups")
         .insert({
@@ -241,7 +250,8 @@ const MemberDashboard = () => {
           today_plan: standupData.today_plan,
           blockers: standupData.blockers,
           next_steps: standupData.next_steps,
-          status: "submitted"
+          status: "submitted",
+          submission_type: "text"
         });
 
       if (error) throw error;
@@ -347,6 +357,15 @@ const MemberDashboard = () => {
 
     try {
       const today = new Date().toISOString().split('T')[0];
+      
+      // In test mode, delete any existing submission for today to allow resubmission
+      if (testMode) {
+        await supabase
+          .from("daily_standups")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("date", today);
+      }
       
       // 1. Upload audio to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -540,6 +559,15 @@ const MemberDashboard = () => {
 
     try {
       const today = new Date().toISOString().split('T')[0];
+      
+      // In test mode, delete any existing submission for today to allow resubmission
+      if (testMode) {
+        await supabase
+          .from("daily_standups")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("date", today);
+      }
       
       // 1. Upload image to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -748,7 +776,7 @@ const MemberDashboard = () => {
             <div className="bg-yellow-500/10 border-2 border-yellow-500 rounded-lg p-4 flex items-center gap-3">
               <FlaskConical className="w-6 h-6 text-yellow-600" />
               <p className="text-base font-semibold text-yellow-700">
-                ⚠️ TEST MODE ACTIVE - Time restrictions disabled
+                ⚠️ TEST MODE ACTIVE - Time restrictions disabled, multiple submissions allowed
               </p>
             </div>
           )}
