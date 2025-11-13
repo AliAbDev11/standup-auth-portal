@@ -232,7 +232,7 @@ const MemberDashboard = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("daily_standups")
         .insert({
           user_id: user.id,
@@ -241,10 +241,35 @@ const MemberDashboard = () => {
           today_plan: standupData.today_plan,
           blockers: standupData.blockers,
           next_steps: standupData.next_steps,
-          status: "submitted"
-        });
+          status: "submitted",
+          submission_type: "text",
+          submitted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Send to n8n webhook
+      try {
+        const response = await fetch(N8N_CONFIG.webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(standupData)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('Success:', result);
+      } catch (webhookError) {
+        console.error('Error submitting standup:', webhookError);
+        // Don't fail the submission if webhook fails
+      }
 
       toast.success("Standup submitted successfully!");
       setStandupData({ yesterday_work: "", today_plan: "", blockers: "", next_steps: "" });
