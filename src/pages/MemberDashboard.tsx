@@ -6,8 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical, Trash2 } from "lucide-react";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { N8N_CONFIG, triggerWebhookWithRetry } from "@/config/n8n";
@@ -31,9 +30,6 @@ interface HistoryItem {
   today_plan: string;
   blockers: string;
   next_steps: string;
-  media_url?: string | null;
-  media_filename?: string | null;
-  submission_type?: string | null;
 }
 
 const MemberDashboard = () => {
@@ -47,8 +43,6 @@ const MemberDashboard = () => {
   const [submissionMode, setSubmissionMode] = useState<SubmissionMode>("text");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [standupToDelete, setStandupToDelete] = useState<HistoryItem | null>(null);
   const [testMode, setTestMode] = useState(() => {
     return localStorage.getItem("testMode") === "true";
   });
@@ -228,51 +222,6 @@ const MemberDashboard = () => {
     toast.success(newTestMode ? "Test mode enabled" : "Test mode disabled");
   };
 
-  const handleDeleteClick = (item: HistoryItem, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent expanding the history item
-    setStandupToDelete(item);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!standupToDelete || !user) return;
-
-    try {
-      // Delete associated media file from storage if it exists
-      if (standupToDelete.media_filename) {
-        const { error: storageError } = await supabase.storage
-          .from('daily-standups')
-          .remove([standupToDelete.media_filename]);
-        
-        if (storageError) {
-          console.error("Error deleting media file:", storageError);
-          // Continue with standup deletion even if file deletion fails
-        }
-      }
-
-      // Delete the standup record
-      const { error } = await supabase
-        .from("daily_standups")
-        .delete()
-        .eq("id", standupToDelete.id)
-        .eq("user_id", user.id); // Extra security check
-
-      if (error) throw error;
-
-      toast.success("Standup deleted successfully");
-      
-      // Refresh history and today's status
-      await fetchHistory();
-      await checkTodayStatus();
-      
-      setDeleteDialogOpen(false);
-      setStandupToDelete(null);
-    } catch (error: any) {
-      console.error("Error deleting standup:", error);
-      toast.error("Failed to delete standup: " + error.message);
-    }
-  };
-
   const handleTextSubmit = async () => {
     if (!user || !standupData.yesterday_work || !standupData.today_plan || !standupData.blockers || !standupData.next_steps) {
       toast.error("Please fill in all fields");
@@ -283,15 +232,6 @@ const MemberDashboard = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // In test mode, delete any existing submission for today to allow resubmission
-      if (testMode) {
-        await supabase
-          .from("daily_standups")
-          .delete()
-          .eq("user_id", user.id)
-          .eq("date", today);
-      }
-      
       const { error } = await supabase
         .from("daily_standups")
         .insert({
@@ -301,8 +241,7 @@ const MemberDashboard = () => {
           today_plan: standupData.today_plan,
           blockers: standupData.blockers,
           next_steps: standupData.next_steps,
-          status: "submitted",
-          submission_type: "text"
+          status: "submitted"
         });
 
       if (error) throw error;
@@ -408,15 +347,6 @@ const MemberDashboard = () => {
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      // In test mode, delete any existing submission for today to allow resubmission
-      if (testMode) {
-        await supabase
-          .from("daily_standups")
-          .delete()
-          .eq("user_id", user.id)
-          .eq("date", today);
-      }
       
       // 1. Upload audio to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -610,15 +540,6 @@ const MemberDashboard = () => {
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      // In test mode, delete any existing submission for today to allow resubmission
-      if (testMode) {
-        await supabase
-          .from("daily_standups")
-          .delete()
-          .eq("user_id", user.id)
-          .eq("date", today);
-      }
       
       // 1. Upload image to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -827,7 +748,7 @@ const MemberDashboard = () => {
             <div className="bg-yellow-500/10 border-2 border-yellow-500 rounded-lg p-4 flex items-center gap-3">
               <FlaskConical className="w-6 h-6 text-yellow-600" />
               <p className="text-base font-semibold text-yellow-700">
-                ⚠️ TEST MODE ACTIVE - Time restrictions disabled, multiple submissions allowed
+                ⚠️ TEST MODE ACTIVE - Time restrictions disabled
               </p>
             </div>
           )}
@@ -1144,19 +1065,9 @@ const MemberDashboard = () => {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm">
-                            {expandedHistory === item.id ? "Hide Details" : "View Details"}
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={(e) => handleDeleteClick(item, e)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        <Button variant="ghost" size="sm">
+                          {expandedHistory === item.id ? "Hide Details" : "View Details"}
+                        </Button>
                       </div>
                       {expandedHistory === item.id && (
                         <div className="p-4 border-t bg-muted/20 space-y-3">
@@ -1186,27 +1097,6 @@ const MemberDashboard = () => {
           </Card>
         </div>
       </main>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Standup</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this standup? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setStandupToDelete(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteConfirm}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };
