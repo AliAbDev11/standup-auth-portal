@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical, Trash2, AlertTriangle } from "lucide-react";
+import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { N8N_CONFIG, triggerWebhookWithRetry } from "@/config/n8n";
@@ -75,9 +75,6 @@ const MemberDashboard = () => {
   const [processingStatus, setProcessingStatus] = useState("");
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Existing submission state
-  const [existingSubmission, setExistingSubmission] = useState<any>(null);
-
   useEffect(() => {
     checkUser();
     const interval = setInterval(() => {
@@ -144,7 +141,6 @@ const MemberDashboard = () => {
 
     if (leaveData) {
       setTodayStatus("on_leave");
-      setExistingSubmission(null);
       return;
     }
 
@@ -159,7 +155,6 @@ const MemberDashboard = () => {
     if (standupData) {
       setTodayStatus("submitted");
       setSubmittedAt(standupData.submitted_at);
-      setExistingSubmission(standupData);
     } else {
       const now = new Date();
       const cutoffTime = new Date();
@@ -170,7 +165,6 @@ const MemberDashboard = () => {
       } else {
         setTodayStatus("pending");
       }
-      setExistingSubmission(null);
     }
   };
 
@@ -234,59 +228,31 @@ const MemberDashboard = () => {
       return;
     }
 
-    // Check if submission already exists
-    if (existingSubmission && !testMode) {
-      toast.error("You already submitted today!");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      if (existingSubmission && testMode) {
-        // UPDATE existing record in test mode
-        const { error } = await supabase
-          .from("daily_standups")
-          .update({
-            yesterday_work: standupData.yesterday_work,
-            today_plan: standupData.today_plan,
-            blockers: standupData.blockers,
-            next_steps: standupData.next_steps,
-            submitted_at: new Date().toISOString(),
-            submission_type: 'text',
-            media_url: null,
-            media_filename: null
-          })
-          .eq('id', existingSubmission.id);
+      const { error } = await supabase
+        .from("daily_standups")
+        .insert({
+          user_id: user.id,
+          date: today,
+          yesterday_work: standupData.yesterday_work,
+          today_plan: standupData.today_plan,
+          blockers: standupData.blockers,
+          next_steps: standupData.next_steps,
+          status: "submitted"
+        });
 
-        if (error) throw error;
-        toast.success("🧪 Test Mode: Existing submission updated!");
-      } else {
-        // INSERT new record
-        const { error } = await supabase
-          .from("daily_standups")
-          .insert({
-            user_id: user.id,
-            date: today,
-            yesterday_work: standupData.yesterday_work,
-            today_plan: standupData.today_plan,
-            blockers: standupData.blockers,
-            next_steps: standupData.next_steps,
-            status: "submitted",
-            submission_type: 'text'
-          });
+      if (error) throw error;
 
-        if (error) throw error;
-        toast.success(testMode ? "🧪 Test Mode: Standup submitted!" : "✅ Standup submitted successfully!");
-      }
-
+      toast.success("Standup submitted successfully!");
       setStandupData({ yesterday_work: "", today_plan: "", blockers: "", next_steps: "" });
       checkTodayStatus();
       fetchHistory();
     } catch (error) {
       console.error("Error submitting standup:", error);
-      toast.error("Failed to submit standup: " + (error instanceof Error ? error.message : "Unknown error"));
+      toast.error("Failed to submit standup");
     } finally {
       setSubmitting(false);
     }
@@ -375,32 +341,12 @@ const MemberDashboard = () => {
       return;
     }
 
-    // Check if submission already exists
-    if (existingSubmission && !testMode) {
-      toast.error("You already submitted today!");
-      return;
-    }
-
     setProcessing(true);
     setProcessingStatus('Uploading audio...');
     console.log('🎤 Audio submission started');
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      // Delete old media file if updating
-      if (existingSubmission && testMode && existingSubmission.media_filename) {
-        console.log('🗑️ Deleting old audio file...');
-        const { error: deleteError } = await supabase.storage
-          .from('daily-standups')
-          .remove([existingSubmission.media_filename]);
-        
-        if (deleteError) {
-          console.warn('⚠️ Failed to delete old file:', deleteError);
-        } else {
-          console.log('✅ Old file deleted');
-        }
-      }
       
       // 1. Upload audio to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -424,61 +370,35 @@ const MemberDashboard = () => {
       console.log('✅ Public URL:', audioUrl);
 
       setProcessingStatus('Creating standup record...');
-      console.log('📝 Creating/updating database record...');
+      console.log('📝 Creating database record...');
 
-      let standup;
-      if (existingSubmission && testMode) {
-        // UPDATE existing record
-        const { data: updateData, error: updateError } = await supabase
-          .from('daily_standups')
-          .update({
-            submission_type: 'audio',
-            media_url: audioUrl,
-            media_filename: fileName,
-            processing_status: 'pending',
-            yesterday_work: 'Processing...',
-            today_plan: 'Processing...',
-            blockers: 'Processing...',
-            next_steps: 'Processing...',
-            submitted_at: new Date().toISOString()
-          })
-          .eq('id', existingSubmission.id)
-          .select()
-          .single();
+      // 3. Create pending standup record
+      const { data: standup, error: standupError } = await supabase
+        .from('daily_standups')
+        .insert({
+          user_id: user.id,
+          date: today,
+          submission_type: 'audio',
+          media_url: audioUrl,
+          media_filename: fileName,
+          status: 'submitted',
+          processing_status: 'pending',
+          yesterday_work: 'Processing...',
+          today_plan: 'Processing...',
+          blockers: 'Processing...',
+          next_steps: 'Processing...',
+          submitted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
 
-        if (updateError) throw updateError;
-        standup = updateData;
-        console.log('✅ Record updated:', standup.id);
-      } else {
-        // INSERT new record
-        const { data: insertData, error: insertError } = await supabase
-          .from('daily_standups')
-          .insert({
-            user_id: user.id,
-            date: today,
-            submission_type: 'audio',
-            media_url: audioUrl,
-            media_filename: fileName,
-            status: 'submitted',
-            processing_status: 'pending',
-            yesterday_work: 'Processing...',
-            today_plan: 'Processing...',
-            blockers: 'Processing...',
-            next_steps: 'Processing...',
-            submitted_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-        standup = insertData;
-        console.log('✅ Record created:', standup.id);
-      }
+      if (standupError) throw standupError;
+      console.log('✅ Record created:', standup.id);
 
       setProcessingStatus('Sending to AI for processing...');
       console.log('🔗 Triggering n8n webhook...');
 
-      // 3. Trigger n8n webhook
+      // 4. Trigger n8n webhook
       if (N8N_CONFIG.enabled) {
         const webhookPayload = {
           user_id: user.id,
@@ -497,12 +417,9 @@ const MemberDashboard = () => {
         console.warn('⚠️ n8n webhook not configured');
       }
 
-      // 4. Show processing message and start polling
+      // 5. Show processing message and start polling
       setProcessingStatus('Processing audio with AI...');
-      const message = existingSubmission && testMode 
-        ? '🧪 Test Mode: Updating submission. Processing may take 30-60 seconds.'
-        : 'Audio uploaded! Processing may take 30-60 seconds.';
-      toast.success(message);
+      toast.success('Audio uploaded! Processing may take 30-60 seconds.');
       console.log('⏳ Starting polling for completion...');
       
       // Reset audio state
@@ -617,32 +534,12 @@ const MemberDashboard = () => {
       return;
     }
 
-    // Check if submission already exists
-    if (existingSubmission && !testMode) {
-      toast.error("You already submitted today!");
-      return;
-    }
-
     setProcessing(true);
     setProcessingStatus('Uploading image...');
     console.log('📷 Image submission started');
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      
-      // Delete old media file if updating
-      if (existingSubmission && testMode && existingSubmission.media_filename) {
-        console.log('🗑️ Deleting old image file...');
-        const { error: deleteError } = await supabase.storage
-          .from('daily-standups')
-          .remove([existingSubmission.media_filename]);
-        
-        if (deleteError) {
-          console.warn('⚠️ Failed to delete old file:', deleteError);
-        } else {
-          console.log('✅ Old file deleted');
-        }
-      }
       
       // 1. Upload image to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
@@ -666,61 +563,35 @@ const MemberDashboard = () => {
       console.log('✅ Public URL:', imageUrl);
 
       setProcessingStatus('Creating standup record...');
-      console.log('📝 Creating/updating database record...');
+      console.log('📝 Creating database record...');
 
-      let standup;
-      if (existingSubmission && testMode) {
-        // UPDATE existing record
-        const { data: updateData, error: updateError } = await supabase
-          .from('daily_standups')
-          .update({
-            submission_type: 'image',
-            media_url: imageUrl,
-            media_filename: fileName,
-            processing_status: 'pending',
-            yesterday_work: 'Processing...',
-            today_plan: 'Processing...',
-            blockers: 'Processing...',
-            next_steps: 'Processing...',
-            submitted_at: new Date().toISOString()
-          })
-          .eq('id', existingSubmission.id)
-          .select()
-          .single();
+      // 3. Create pending standup record
+      const { data: standup, error: standupError } = await supabase
+        .from('daily_standups')
+        .insert({
+          user_id: user.id,
+          date: today,
+          submission_type: 'image',
+          media_url: imageUrl,
+          media_filename: fileName,
+          status: 'submitted',
+          processing_status: 'pending',
+          yesterday_work: 'Processing...',
+          today_plan: 'Processing...',
+          blockers: 'Processing...',
+          next_steps: 'Processing...',
+          submitted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
 
-        if (updateError) throw updateError;
-        standup = updateData;
-        console.log('✅ Record updated:', standup.id);
-      } else {
-        // INSERT new record
-        const { data: insertData, error: insertError } = await supabase
-          .from('daily_standups')
-          .insert({
-            user_id: user.id,
-            date: today,
-            submission_type: 'image',
-            media_url: imageUrl,
-            media_filename: fileName,
-            status: 'submitted',
-            processing_status: 'pending',
-            yesterday_work: 'Processing...',
-            today_plan: 'Processing...',
-            blockers: 'Processing...',
-            next_steps: 'Processing...',
-            submitted_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-        standup = insertData;
-        console.log('✅ Record created:', standup.id);
-      }
+      if (standupError) throw standupError;
+      console.log('✅ Record created:', standup.id);
 
       setProcessingStatus('Sending to AI for analysis...');
       console.log('🔗 Triggering n8n webhook...');
 
-      // 3. Trigger n8n webhook
+      // 4. Trigger n8n webhook
       if (N8N_CONFIG.enabled) {
         const webhookPayload = {
           user_id: user.id,
@@ -739,12 +610,9 @@ const MemberDashboard = () => {
         console.warn('⚠️ n8n webhook not configured');
       }
 
-      // 4. Show processing message and start polling
+      // 5. Show processing message and start polling
       setProcessingStatus('Analyzing image with AI...');
-      const message = existingSubmission && testMode 
-        ? '🧪 Test Mode: Updating submission. Processing may take 30-60 seconds.'
-        : 'Image uploaded! Processing may take 30-60 seconds.';
-      toast.success(message);
+      toast.success('Image uploaded! Processing may take 30-60 seconds.');
       console.log('⏳ Starting polling for completion...');
       
       // Reset image state
@@ -759,42 +627,6 @@ const MemberDashboard = () => {
       toast.error('Failed to submit image: ' + (error instanceof Error ? error.message : 'Unknown error'));
       setProcessing(false);
       setProcessingStatus('');
-    }
-  };
-
-  const clearTestData = async () => {
-    if (!existingSubmission || !testMode) return;
-
-    const confirmed = window.confirm("Are you sure you want to clear today's test submission? This cannot be undone.");
-    if (!confirmed) return;
-
-    try {
-      // Delete media file if exists
-      if (existingSubmission.media_filename) {
-        console.log('🗑️ Deleting media file...');
-        const { error: deleteError } = await supabase.storage
-          .from('daily-standups')
-          .remove([existingSubmission.media_filename]);
-        
-        if (deleteError) {
-          console.warn('⚠️ Failed to delete file:', deleteError);
-        }
-      }
-
-      // Delete database record
-      const { error } = await supabase
-        .from('daily_standups')
-        .delete()
-        .eq('id', existingSubmission.id);
-
-      if (error) throw error;
-
-      toast.success("🗑️ Test submission cleared");
-      await checkTodayStatus();
-      await fetchHistory();
-    } catch (error) {
-      console.error('Error clearing test data:', error);
-      toast.error('Failed to clear test data: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -913,36 +745,11 @@ const MemberDashboard = () => {
         <div className="grid gap-6">
           {/* Test Mode Warning Banner */}
           {testMode && (
-            <div className="bg-yellow-500/10 border-2 border-yellow-500 rounded-lg p-4">
-              <div className="flex items-center gap-3 mb-3">
-                <FlaskConical className="w-6 h-6 text-yellow-600" />
-                <p className="text-base font-semibold text-yellow-700">
-                  ⚠️ TEST MODE ACTIVE - Time restrictions disabled
-                </p>
-              </div>
-              {existingSubmission && (
-                <div className="flex items-start justify-between gap-4 mt-3 pt-3 border-t border-yellow-500/30">
-                  <div className="flex items-start gap-2 flex-1">
-                    <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                    <div className="text-sm text-yellow-700">
-                      <p className="font-medium">Existing submission detected</p>
-                      <p className="text-xs mt-1">
-                        Submitted at {existingSubmission.submitted_at ? formatSubmittedTime(existingSubmission.submitted_at) : "N/A"} • 
-                        In Test Mode, you can update this submission or clear it.
-                      </p>
-                    </div>
-                  </div>
-                  <Button 
-                    onClick={clearTestData} 
-                    variant="outline" 
-                    size="sm"
-                    className="border-yellow-500 text-yellow-700 hover:bg-yellow-500/20 flex-shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Clear
-                  </Button>
-                </div>
-              )}
+            <div className="bg-yellow-500/10 border-2 border-yellow-500 rounded-lg p-4 flex items-center gap-3">
+              <FlaskConical className="w-6 h-6 text-yellow-600" />
+              <p className="text-base font-semibold text-yellow-700">
+                ⚠️ TEST MODE ACTIVE - Time restrictions disabled
+              </p>
             </div>
           )}
 
