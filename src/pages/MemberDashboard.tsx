@@ -73,7 +73,7 @@ const MemberDashboard = () => {
   // Processing state for audio/image
   const [processing, setProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState("");
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [processingStep, setProcessingStep] = useState(0);
 
   useEffect(() => {
     checkUser();
@@ -82,9 +82,6 @@ const MemberDashboard = () => {
     }, 60000); // Update every minute
     return () => {
       clearInterval(interval);
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
     };
   }, []);
 
@@ -342,6 +339,7 @@ const MemberDashboard = () => {
     }
 
     setProcessing(true);
+    setProcessingStep(0);
     setProcessingStatus('Uploading audio...');
     console.log('🎤 Audio submission started');
 
@@ -351,7 +349,7 @@ const MemberDashboard = () => {
       // 1. Upload audio to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
       const fileName = `${user.id}/${today}/standup-audio-${Date.now()}.webm`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('daily-standups')
         .upload(fileName, audioBlob, {
           contentType: 'audio/webm',
@@ -360,6 +358,7 @@ const MemberDashboard = () => {
 
       if (uploadError) throw uploadError;
       console.log('✅ Upload complete');
+      setProcessingStep(1);
 
       // 2. Get public URL
       const { data: urlData } = supabase.storage
@@ -369,142 +368,57 @@ const MemberDashboard = () => {
       const audioUrl = urlData.publicUrl;
       console.log('✅ Public URL:', audioUrl);
 
-      setProcessingStatus('Creating standup record...');
-      console.log('📝 Creating database record...');
-
-      // 3. Create pending standup record
-      const { data: standup, error: standupError } = await supabase
-        .from('daily_standups')
-        .insert({
-          user_id: user.id,
-          date: today,
-          submission_type: 'audio',
-          media_url: audioUrl,
-          media_filename: fileName,
-          status: 'submitted',
-          processing_status: 'pending',
-          yesterday_work: 'Processing...',
-          today_plan: 'Processing...',
-          blockers: 'Processing...',
-          next_steps: 'Processing...',
-          submitted_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (standupError) throw standupError;
-      console.log('✅ Record created:', standup.id);
-
       setProcessingStatus('Sending to AI for processing...');
+      setProcessingStep(2);
       console.log('🔗 Triggering n8n webhook...');
 
-      // 4. Trigger n8n webhook
-      if (N8N_CONFIG.enabled) {
-        const webhookPayload = {
-          user_id: user.id,
-          submission_id: standup.id,
-          date: today,
-          media_url: audioUrl,
-          media_type: 'audio',
-          media_filename: fileName,
-          bucket: 'daily-standups',
-          timestamp: new Date().toISOString()
-        };
-
-        await triggerWebhookWithRetry(webhookPayload);
-        console.log('✅ Webhook triggered successfully');
-      } else {
-        console.warn('⚠️ n8n webhook not configured');
+      // 3. Trigger n8n webhook and wait for response (n8n creates the record)
+      if (!N8N_CONFIG.enabled) {
+        throw new Error('n8n webhook not configured');
       }
 
-      // 5. Show processing message and start polling
-      setProcessingStatus('Processing audio with AI...');
-      toast.success('Audio uploaded! Processing may take 30-60 seconds.');
-      console.log('⏳ Starting polling for completion...');
+      const webhookPayload = {
+        user_id: user.id,
+        date: today,
+        media_url: audioUrl,
+        media_type: 'audio',
+        media_filename: fileName,
+        bucket: 'daily-standups'
+      };
+
+      setProcessingStatus('Extracting standup details...');
+      setProcessingStep(3);
+
+      await triggerWebhookWithRetry(webhookPayload);
+      console.log('✅ Webhook completed successfully');
+
+      // 4. Fetch the created record and update UI
+      await checkTodayStatus();
+      await fetchHistory();
       
       // Reset audio state
       setAudioBlob(null);
       setRecordingDuration(0);
       setIsPlaying(false);
       
-      // Start polling
-      startPollingForCompletion(standup.id);
+      toast.success('✅ Audio processed successfully!');
+      console.log('✅ Processing complete!');
 
     } catch (error) {
       console.error('Error submitting audio:', error);
-      toast.error('Failed to submit audio: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+        toast.error('⏱️ Processing is taking longer than expected. Please refresh in a minute.');
+      } else {
+        toast.error('Failed to process audio: ' + errorMessage);
+      }
+    } finally {
       setProcessing(false);
       setProcessingStatus('');
+      setProcessingStep(0);
     }
   };
 
-  const startPollingForCompletion = (submissionId: string) => {
-    let attempts = 0;
-    const maxAttempts = 60; // Poll for 5 minutes max (every 5 seconds)
-    
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
-    pollingIntervalRef.current = setInterval(async () => {
-      attempts++;
-      
-      try {
-        const { data: standup, error } = await supabase
-          .from('daily_standups')
-          .select('processing_status, yesterday_work, today_plan, blockers, next_steps')
-          .eq('id', submissionId)
-          .single();
-
-        if (error) throw error;
-
-        console.log(`Polling attempt ${attempts}: Status = ${standup.processing_status}`);
-
-        if (standup.processing_status === 'completed') {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          setProcessing(false);
-          setProcessingStatus('');
-          
-          await checkTodayStatus();
-          await fetchHistory();
-          
-          toast.success('✅ Your standup has been processed successfully!');
-          console.log('✅ Processing complete!');
-          console.log('Extracted standup:', {
-            yesterday: standup.yesterday_work,
-            today: standup.today_plan,
-            blockers: standup.blockers,
-            next_steps: standup.next_steps
-          });
-          
-        } else if (standup.processing_status === 'failed') {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          setProcessing(false);
-          setProcessingStatus('');
-          toast.error('❌ Processing failed. Please try submitting again.');
-          
-        } else if (attempts >= maxAttempts) {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          setProcessing(false);
-          setProcessingStatus('');
-          toast.warning('⏱️ Processing is taking longer than expected. Check back in a few minutes.');
-        }
-        
-      } catch (error) {
-        console.error('Polling error:', error);
-      }
-      
-    }, 5000);
-  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -535,6 +449,7 @@ const MemberDashboard = () => {
     }
 
     setProcessing(true);
+    setProcessingStep(0);
     setProcessingStatus('Uploading image...');
     console.log('📷 Image submission started');
 
@@ -544,7 +459,7 @@ const MemberDashboard = () => {
       // 1. Upload image to Supabase Storage
       console.log('📤 Uploading to Supabase Storage...');
       const fileName = `${user.id}/${today}/standup-image-${Date.now()}.${imageFile.type.split('/')[1]}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('daily-standups')
         .upload(fileName, imageFile, {
           contentType: imageFile.type,
@@ -553,6 +468,7 @@ const MemberDashboard = () => {
 
       if (uploadError) throw uploadError;
       console.log('✅ Upload complete');
+      setProcessingStep(1);
 
       // 2. Get public URL
       const { data: urlData } = supabase.storage
@@ -562,71 +478,53 @@ const MemberDashboard = () => {
       const imageUrl = urlData.publicUrl;
       console.log('✅ Public URL:', imageUrl);
 
-      setProcessingStatus('Creating standup record...');
-      console.log('📝 Creating database record...');
-
-      // 3. Create pending standup record
-      const { data: standup, error: standupError } = await supabase
-        .from('daily_standups')
-        .insert({
-          user_id: user.id,
-          date: today,
-          submission_type: 'image',
-          media_url: imageUrl,
-          media_filename: fileName,
-          status: 'submitted',
-          processing_status: 'pending',
-          yesterday_work: 'Processing...',
-          today_plan: 'Processing...',
-          blockers: 'Processing...',
-          next_steps: 'Processing...',
-          submitted_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (standupError) throw standupError;
-      console.log('✅ Record created:', standup.id);
-
       setProcessingStatus('Sending to AI for analysis...');
+      setProcessingStep(2);
       console.log('🔗 Triggering n8n webhook...');
 
-      // 4. Trigger n8n webhook
-      if (N8N_CONFIG.enabled) {
-        const webhookPayload = {
-          user_id: user.id,
-          submission_id: standup.id,
-          date: today,
-          media_url: imageUrl,
-          media_type: 'image',
-          media_filename: fileName,
-          bucket: 'daily-standups',
-          timestamp: new Date().toISOString()
-        };
-
-        await triggerWebhookWithRetry(webhookPayload);
-        console.log('✅ Webhook triggered successfully');
-      } else {
-        console.warn('⚠️ n8n webhook not configured');
+      // 3. Trigger n8n webhook and wait for response (n8n creates the record)
+      if (!N8N_CONFIG.enabled) {
+        throw new Error('n8n webhook not configured');
       }
 
-      // 5. Show processing message and start polling
-      setProcessingStatus('Analyzing image with AI...');
-      toast.success('Image uploaded! Processing may take 30-60 seconds.');
-      console.log('⏳ Starting polling for completion...');
+      const webhookPayload = {
+        user_id: user.id,
+        date: today,
+        media_url: imageUrl,
+        media_type: 'image',
+        media_filename: fileName,
+        bucket: 'daily-standups'
+      };
+
+      setProcessingStatus('Extracting standup details...');
+      setProcessingStep(3);
+
+      await triggerWebhookWithRetry(webhookPayload);
+      console.log('✅ Webhook completed successfully');
+
+      // 4. Fetch the created record and update UI
+      await checkTodayStatus();
+      await fetchHistory();
       
       // Reset image state
       setImageFile(null);
       setImagePreview(null);
       
-      // Start polling
-      startPollingForCompletion(standup.id);
+      toast.success('✅ Image processed successfully!');
+      console.log('✅ Processing complete!');
 
     } catch (error) {
       console.error('Error submitting image:', error);
-      toast.error('Failed to submit image: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+        toast.error('⏱️ Processing is taking longer than expected. Please refresh in a minute.');
+      } else {
+        toast.error('Failed to process image: ' + errorMessage);
+      }
+    } finally {
       setProcessing(false);
       setProcessingStatus('');
+      setProcessingStep(0);
     }
   };
 
@@ -667,41 +565,54 @@ const MemberDashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Processing Overlay */}
+      {/* Processing Overlay - Blocking Modal */}
       {processing && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg p-8 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg p-8 max-w-md w-full mx-4 shadow-2xl">
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent mb-4" />
               
               <h3 className="text-lg font-semibold mb-2">Processing Your Standup</h3>
               <p className="text-muted-foreground mb-4">{processingStatus}</p>
               
-              <div className="space-y-2 text-sm text-left">
-                <div className="flex items-center gap-2">
-                  <span className="text-green-500">✓</span>
-                  <span>File uploaded</span>
+              <div className="space-y-3 text-sm text-left bg-muted/50 p-4 rounded-lg">
+                <div className="flex items-center gap-3">
+                  {processingStep >= 1 ? (
+                    <span className="text-green-500 text-lg">✓</span>
+                  ) : (
+                    <div className="animate-pulse text-primary text-lg">⏳</div>
+                  )}
+                  <span className={processingStep >= 1 ? "text-green-600 font-medium" : ""}>
+                    File uploaded
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-green-500">✓</span>
-                  <span>Record created</span>
+                <div className="flex items-center gap-3">
+                  {processingStep >= 2 ? (
+                    <span className="text-green-500 text-lg">✓</span>
+                  ) : processingStep === 1 ? (
+                    <div className="animate-pulse text-primary text-lg">⏳</div>
+                  ) : (
+                    <span className="text-muted-foreground text-lg">○</span>
+                  )}
+                  <span className={processingStep >= 2 ? "text-green-600 font-medium" : ""}>
+                    Sent to AI for analysis
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="animate-pulse text-primary">⏳</div>
-                  <span>AI processing in progress...</span>
+                <div className="flex items-center gap-3">
+                  {processingStep >= 3 ? (
+                    <div className="animate-pulse text-primary text-lg">⏳</div>
+                  ) : (
+                    <span className="text-muted-foreground text-lg">○</span>
+                  )}
+                  <span className={processingStep >= 3 ? "text-primary font-medium" : ""}>
+                    Extracting standup details...
+                  </span>
                 </div>
               </div>
               
               <p className="text-xs text-muted-foreground mt-4">
-                This usually takes 30-60 seconds. You can close this and check back later.
+                This may take 30-60 seconds. Please wait...
               </p>
-              
-              <button
-                onClick={() => setProcessing(false)}
-                className="mt-4 text-sm text-muted-foreground hover:text-foreground"
-              >
-                Continue in background
-              </button>
             </div>
           </div>
         </div>
