@@ -567,53 +567,67 @@ const MemberDashboard = () => {
     <div className="min-h-screen bg-background">
       {/* Processing Overlay - Blocking Modal */}
       {processing && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg p-8 max-w-md w-full mx-4 shadow-2xl">
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent mb-4" />
-              
-              <h3 className="text-lg font-semibold mb-2">Processing Your Standup</h3>
-              <p className="text-muted-foreground mb-4">{processingStatus}</p>
-              
-              <div className="space-y-3 text-sm text-left bg-muted/50 p-4 rounded-lg">
-                <div className="flex items-center gap-3">
-                  {processingStep >= 1 ? (
-                    <span className="text-green-500 text-lg">✓</span>
-                  ) : (
-                    <div className="animate-pulse text-primary text-lg">⏳</div>
-                  )}
-                  <span className={processingStep >= 1 ? "text-green-600 font-medium" : ""}>
-                    File uploaded
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {processingStep >= 2 ? (
-                    <span className="text-green-500 text-lg">✓</span>
-                  ) : processingStep === 1 ? (
-                    <div className="animate-pulse text-primary text-lg">⏳</div>
-                  ) : (
-                    <span className="text-muted-foreground text-lg">○</span>
-                  )}
-                  <span className={processingStep >= 2 ? "text-green-600 font-medium" : ""}>
-                    Sent to AI for analysis
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {processingStep >= 3 ? (
-                    <div className="animate-pulse text-primary text-lg">⏳</div>
-                  ) : (
-                    <span className="text-muted-foreground text-lg">○</span>
-                  )}
-                  <span className={processingStep >= 3 ? "text-primary font-medium" : ""}>
-                    Extracting standup details...
-                  </span>
-                </div>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-card rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
+            {/* Animated icon based on submission type */}
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center animate-pulse">
+                {submissionMode === 'audio' ? (
+                  <Mic className="w-10 h-10 text-primary" />
+                ) : (
+                  <ImageIcon className="w-10 h-10 text-primary" />
+                )}
               </div>
-              
-              <p className="text-xs text-muted-foreground mt-4">
-                This may take 30-60 seconds. Please wait...
-              </p>
             </div>
+            
+            <h3 className="text-xl font-bold text-center mb-2">
+              {submissionMode === 'audio' ? 'Processing Your Audio' : 'Processing Your Image'}
+            </h3>
+            <p className="text-muted-foreground text-center mb-6">
+              {submissionMode === 'audio' 
+                ? 'Our AI is transcribing and extracting your standup details'
+                : 'Our AI is analyzing and extracting your standup details'}
+            </p>
+            
+            {/* Progress steps */}
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-3">
+                {processingStep >= 1 ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : (
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                )}
+                <span className={`text-sm ${processingStep >= 1 ? "text-green-600 font-medium" : ""}`}>
+                  {submissionMode === 'audio' ? 'Audio uploaded' : 'Image uploaded'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                {processingStep >= 2 ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : processingStep === 1 ? (
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />
+                )}
+                <span className={`text-sm ${processingStep >= 2 ? "text-green-600 font-medium" : ""}`}>
+                  {submissionMode === 'audio' ? 'Sent to AI for transcription' : 'Sent to AI for analysis'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                {processingStep >= 3 ? (
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />
+                )}
+                <span className={`text-sm ${processingStep >= 3 ? "text-primary font-medium" : ""}`}>
+                  Extracting standup details...
+                </span>
+              </div>
+            </div>
+            
+            <p className="text-xs text-muted-foreground text-center">
+              This usually takes 30-60 seconds. Please don't close this window.
+            </p>
           </div>
         </div>
       )}
