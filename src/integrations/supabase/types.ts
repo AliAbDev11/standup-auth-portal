@@ -135,6 +135,36 @@ export type Database = {
           },
         ]
       }
+      deliverables: {
+        Row: {
+          created_at: string | null
+          day_number: number
+          drive_link: string
+          id: string
+          linkedin_link: string | null
+          notes: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          day_number: number
+          drive_link: string
+          id?: string
+          linkedin_link?: string | null
+          notes?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          day_number?: number
+          drive_link?: string
+          id?: string
+          linkedin_link?: string | null
+          notes?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       departments: {
         Row: {
           created_at: string | null
