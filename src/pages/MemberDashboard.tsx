@@ -5,14 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "sonner";
-import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical } from "lucide-react";
+import { LogOut, Clipboard, CheckCircle, XCircle, Clock, Palmtree, FileText, Mic, Image as ImageIcon, Upload, Play, Pause, RotateCcw, FlaskConical, Settings, Calendar, ChevronDown, ChevronUp, Check } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { N8N_CONFIG, triggerWebhookWithRetry } from "@/config/n8n";
 
 type SubmissionMode = "text" | "audio" | "image";
-type SubmissionStatus = "submitted" | "pending" | "missed" | "on_leave";
+type SubmissionStatus = "submitted" | "pending" | "missed" | "on_leave" | "weekend";
 
 interface StandupData {
   yesterday_work: string;
@@ -35,16 +36,28 @@ interface HistoryItem {
 const MemberDashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
+  const [departmentName, setDepartmentName] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [todayStatus, setTodayStatus] = useState<SubmissionStatus>("pending");
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
-  const [submissionMode, setSubmissionMode] = useState<SubmissionMode>("text");
+  const [submissionMode, setSubmissionMode] = useState<SubmissionMode>(() => {
+    return (localStorage.getItem("preferredSubmissionMethod") as SubmissionMode) || "text";
+  });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const [testMode, setTestMode] = useState(() => {
     return localStorage.getItem("testMode") === "true";
+  });
+  const [streak, setStreak] = useState(0);
+  const [showAudioInstructions, setShowAudioInstructions] = useState(() => {
+    const hideCount = parseInt(localStorage.getItem("audioInstructionViews") || "0");
+    return hideCount < 3 && localStorage.getItem("hideInstructions") !== "true";
+  });
+  const [showImageInstructions, setShowImageInstructions] = useState(() => {
+    const hideCount = parseInt(localStorage.getItem("imageInstructionViews") || "0");
+    return hideCount < 3 && localStorage.getItem("hideInstructions") !== "true";
   });
   
   // Text mode state
@@ -75,6 +88,12 @@ const MemberDashboard = () => {
   const [processingStatus, setProcessingStatus] = useState("");
   const [processingStep, setProcessingStep] = useState(0);
 
+  const isWeekend = () => {
+    if (testMode) return false; // Bypass weekend check in test mode
+    const day = new Date().getDay();
+    return day === 0 || day === 6;
+  };
+
   useEffect(() => {
     checkUser();
     const interval = setInterval(() => {
@@ -89,6 +108,7 @@ const MemberDashboard = () => {
     if (user) {
       checkTodayStatus();
       fetchHistory();
+      fetchStreak();
     }
   }, [user]);
 
@@ -103,7 +123,10 @@ const MemberDashboard = () => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("*")
+        .select(`
+          *,
+          departments:department_id (name)
+        `)
         .eq("id", user.id)
         .single();
 
@@ -114,6 +137,7 @@ const MemberDashboard = () => {
       }
 
       setUser(profile);
+      setDepartmentName(profile.departments?.name || "Unknown");
     } catch (error) {
       console.error("Error:", error);
       navigate("/auth");
@@ -124,6 +148,12 @@ const MemberDashboard = () => {
 
   const checkTodayStatus = async () => {
     if (!user) return;
+
+    // Check for weekend first
+    if (isWeekend()) {
+      setTodayStatus("weekend");
+      return;
+    }
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -162,6 +192,63 @@ const MemberDashboard = () => {
       } else {
         setTodayStatus("pending");
       }
+    }
+  };
+
+  const fetchStreak = async () => {
+    if (!user) return;
+
+    try {
+      const { data: submissions } = await supabase
+        .from("daily_standups")
+        .select("date")
+        .eq("user_id", user.id)
+        .eq("status", "submitted")
+        .order("date", { ascending: false })
+        .limit(60);
+
+      if (!submissions || submissions.length === 0) {
+        setStreak(0);
+        return;
+      }
+
+      const submittedDates = new Set(submissions.map(s => s.date));
+      let currentStreak = 0;
+      let currentDate = new Date();
+      currentDate.setHours(0, 0, 0, 0);
+
+      // Check if today is a weekday and has submission
+      const today = currentDate.toISOString().split('T')[0];
+      const todayDay = currentDate.getDay();
+      
+      // If today is a weekday and not submitted yet, start from yesterday
+      if (todayDay !== 0 && todayDay !== 6 && !submittedDates.has(today)) {
+        currentDate.setDate(currentDate.getDate() - 1);
+      }
+
+      // Count consecutive weekday submissions
+      for (let i = 0; i < 60; i++) {
+        const day = currentDate.getDay();
+        
+        // Skip weekends
+        if (day === 0 || day === 6) {
+          currentDate.setDate(currentDate.getDate() - 1);
+          continue;
+        }
+
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        if (submittedDates.has(dateStr)) {
+          currentStreak++;
+          currentDate.setDate(currentDate.getDate() - 1);
+        } else {
+          break;
+        }
+      }
+
+      setStreak(currentStreak);
+    } catch (error) {
+      console.error("Error fetching streak:", error);
     }
   };
 
@@ -640,12 +727,16 @@ const MemberDashboard = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground">Daily Standup System</h1>
-              <p className="text-sm text-muted-foreground">Welcome, {user?.full_name}</p>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                <span className="text-sm text-muted-foreground">Welcome, {user?.full_name}</span>
+                <span className="hidden sm:inline text-muted-foreground/50">•</span>
+                <span className="text-sm text-muted-foreground/70">{departmentName}</span>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Test Mode Toggle - Always visible */}
-            <div className="flex items-center gap-3 px-4 py-2 border rounded-lg bg-card">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Test Mode Toggle */}
+            <div className="hidden sm:flex items-center gap-3 px-4 py-2 border rounded-lg bg-card">
               <FlaskConical className={`w-5 h-5 ${testMode ? 'text-yellow-600' : 'text-muted-foreground'}`} />
               <div className="flex items-center gap-2">
                 <Label htmlFor="test-mode" className="text-sm font-medium cursor-pointer">
@@ -658,9 +749,12 @@ const MemberDashboard = () => {
                 />
               </div>
             </div>
-            <Button onClick={handleLogout} variant="outline">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+            <Button onClick={() => navigate('/member/settings')} variant="ghost" size="icon">
+              <Settings className="w-5 h-5" />
+            </Button>
+            <Button onClick={handleLogout} variant="outline" size="sm">
+              <LogOut className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
@@ -687,16 +781,28 @@ const MemberDashboard = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-muted rounded-lg">
                 <div className="text-sm">
                   <span className="font-medium">Submission Window:</span> 8:00 AM - 10:00 AM
                 </div>
-                {timeRemaining && (
-                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    <Clock className="w-4 h-4" />
-                    {timeRemaining}
+                <div className="flex items-center gap-4">
+                  {timeRemaining && !isWeekend() && (
+                    <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                      <Clock className="w-4 h-4" />
+                      {timeRemaining}
+                    </div>
+                  )}
+                  {/* Streak Counter */}
+                  <div className="flex items-center gap-2 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/30 dark:to-red-950/30 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-800">
+                    <span className="text-xl">🔥</span>
+                    <div className="text-sm">
+                      <span className="font-bold text-orange-600">{streak}</span>
+                      <span className="text-muted-foreground ml-1">day streak</span>
+                    </div>
+                    {streak >= 30 && <span className="ml-1">🏆</span>}
+                    {streak >= 7 && streak < 30 && <span className="ml-1">⭐</span>}
                   </div>
-                )}
+                </div>
               </div>
 
               <div className="flex items-center gap-3 p-4 border rounded-lg">
@@ -738,12 +844,39 @@ const MemberDashboard = () => {
                     </div>
                   </>
                 )}
+                {todayStatus === "weekend" && (
+                  <>
+                    <Calendar className="w-6 h-6 text-primary" />
+                    <div>
+                      <p className="font-medium text-primary">Weekend</p>
+                      <p className="text-sm text-muted-foreground">No submission required</p>
+                    </div>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
 
+          {/* Weekend Message */}
+          {isWeekend() && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="pt-6">
+                <div className="text-center py-8">
+                  <Calendar className="w-16 h-16 mx-auto text-primary/60 mb-4" />
+                  <h3 className="text-xl font-semibold mb-2">Enjoy Your Weekend! 🎉</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Daily standups are not required on weekends.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Next submission window: Monday, 8:00 AM - 10:00 AM
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Submission Form */}
-          {canSubmit && (
+          {canSubmit && !isWeekend() && (
             <Card>
               <CardHeader>
                 <CardTitle>Submit Daily Standup</CardTitle>
@@ -821,6 +954,54 @@ const MemberDashboard = () => {
                   </TabsContent>
 
                   <TabsContent value="audio" className="space-y-4 mt-4">
+                    {/* Audio Instructions */}
+                    <Collapsible open={showAudioInstructions} onOpenChange={setShowAudioInstructions}>
+                      <div className="bg-primary/5 border border-primary/20 rounded-lg p-5 mb-4">
+                        <div className="flex items-start gap-3">
+                          <Mic className="w-6 h-6 text-primary mt-0.5 shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-semibold text-primary mb-2">
+                                📝 What to Include in Your Recording
+                              </h4>
+                              <CollapsibleTrigger asChild>
+                                <Button variant="ghost" size="sm" className="text-primary">
+                                  {showAudioInstructions ? (
+                                    <>Hide <ChevronUp className="w-4 h-4 ml-1" /></>
+                                  ) : (
+                                    <>Show <ChevronDown className="w-4 h-4 ml-1" /></>
+                                  )}
+                                </Button>
+                              </CollapsibleTrigger>
+                            </div>
+                            <CollapsibleContent>
+                              <ul className="space-y-2 text-sm text-muted-foreground">
+                                <li className="flex items-start gap-2">
+                                  <span className="font-semibold text-primary">1.</span>
+                                  <span><strong>Yesterday:</strong> What did you accomplish yesterday?</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="font-semibold text-primary">2.</span>
+                                  <span><strong>Today:</strong> What are you working on today?</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="font-semibold text-primary">3.</span>
+                                  <span><strong>Blockers:</strong> Any blockers or issues you're facing?</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <span className="font-semibold text-primary">4.</span>
+                                  <span><strong>Next Steps:</strong> What are your next steps?</span>
+                                </li>
+                              </ul>
+                              <p className="text-xs text-primary/70 mt-3">
+                                💡 Tip: Speak clearly and cover all 4 points. Recording will be processed by AI to extract these details.
+                              </p>
+                            </CollapsibleContent>
+                          </div>
+                        </div>
+                      </div>
+                    </Collapsible>
+
                     <div className="bg-muted p-6 rounded-lg text-center space-y-4">
                       {!isRecording && !audioBlob && (
                         <>
@@ -883,6 +1064,57 @@ const MemberDashboard = () => {
                   </TabsContent>
 
                   <TabsContent value="image" className="space-y-4 mt-4">
+                    {/* Image Instructions */}
+                    <Collapsible open={showImageInstructions} onOpenChange={setShowImageInstructions}>
+                      <div className="bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-lg p-5 mb-4">
+                        <div className="flex items-start gap-3">
+                          <ImageIcon className="w-6 h-6 text-purple-600 mt-0.5 shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-200 mb-2">
+                                📸 What Your Image Should Contain
+                              </h4>
+                              <CollapsibleTrigger asChild>
+                                <Button variant="ghost" size="sm" className="text-purple-600">
+                                  {showImageInstructions ? (
+                                    <>Hide <ChevronUp className="w-4 h-4 ml-1" /></>
+                                  ) : (
+                                    <>Show <ChevronDown className="w-4 h-4 ml-1" /></>
+                                  )}
+                                </Button>
+                              </CollapsibleTrigger>
+                            </div>
+                            <CollapsibleContent>
+                              <p className="text-sm text-purple-800 dark:text-purple-300 mb-3">
+                                Upload a clear image (screenshot, photo, or document) that includes:
+                              </p>
+                              <ul className="space-y-2 text-sm text-purple-800 dark:text-purple-300">
+                                <li className="flex items-start gap-2">
+                                  <Check className="w-4 h-4 mt-0.5 text-purple-600 shrink-0" />
+                                  <span><strong>Yesterday's work:</strong> What you completed</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <Check className="w-4 h-4 mt-0.5 text-purple-600 shrink-0" />
+                                  <span><strong>Today's plan:</strong> What you're working on</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <Check className="w-4 h-4 mt-0.5 text-purple-600 shrink-0" />
+                                  <span><strong>Blockers:</strong> Any issues or obstacles</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <Check className="w-4 h-4 mt-0.5 text-purple-600 shrink-0" />
+                                  <span><strong>Next steps:</strong> Your upcoming tasks</span>
+                                </li>
+                              </ul>
+                              <p className="text-xs text-purple-600 dark:text-purple-400 mt-3">
+                                💡 Tip: Ensure text is legible. Our AI will read and extract the information automatically.
+                              </p>
+                            </CollapsibleContent>
+                          </div>
+                        </div>
+                      </div>
+                    </Collapsible>
+
                     <div className="border-2 border-dashed border-border rounded-lg p-8 text-center space-y-4">
                       {!imagePreview ? (
                         <>
