@@ -7,7 +7,6 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import AdminDashboard from "./pages/AdminDashboard";
 import ManagerDashboard from "./pages/ManagerDashboard";
-import ManagerSettings from "./pages/ManagerSettings";
 import MemberDashboard from "./pages/MemberDashboard";
 import MemberSettings from "./pages/MemberSettings";
 import NotFound from "./pages/NotFound";
@@ -25,7 +24,6 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/manager/dashboard" element={<ManagerDashboard />} />
-          <Route path="/manager/settings" element={<ManagerSettings />} />
           <Route path="/member/dashboard" element={<MemberDashboard />} />
           <Route path="/member/settings" element={<MemberSettings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

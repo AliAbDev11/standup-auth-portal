@@ -4,31 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import {
-  Users,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Search,
-  UserPlus,
-  Edit,
-  Eye,
-  EyeOff,
-  UserX,
-  AlertTriangle,
-  TrendingDown,
-  Menu,
-  Loader2,
-  Palmtree,
-} from "lucide-react";
-import ManagerSidebar from "@/components/manager/ManagerSidebar";
-import StatCard from "@/components/manager/StatCard";
+import { LogOut, Users, CheckCircle, XCircle, Clock, Palmtree, Search, ChevronDown, UserPlus, Edit, Eye, UserX, AlertTriangle, TrendingDown } from "lucide-react";
 
 type FilterType = "all" | "submitted" | "pending" | "missed" | "on_leave";
 
@@ -37,7 +19,6 @@ interface TeamMember {
   full_name: string;
   email: string;
   is_active: boolean;
-  role: string;
   status: string;
   submitted_at: string | null;
   submission_type?: string | null;
@@ -80,14 +61,8 @@ const ManagerDashboard = () => {
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingMember, setEditingMember] = useState<any>(null);
-  const [inviteForm, setInviteForm] = useState({ email: "", full_name: "", password: "" });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showPasswordField, setShowPasswordField] = useState(false);
-  const [editNewPassword, setEditNewPassword] = useState("");
-  const [showEditPassword, setShowEditPassword] = useState(false);
-  const [inviteLoading, setInviteLoading] = useState(false);
-  const [editLoading, setEditLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [inviteForm, setInviteForm] = useState({ email: "", full_name: "" });
+  const [userManagementOpen, setUserManagementOpen] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -103,7 +78,7 @@ const ManagerDashboard = () => {
   const checkUser = async () => {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
-
+      
       if (!authUser) {
         navigate("/auth");
         return;
@@ -135,13 +110,12 @@ const ManagerDashboard = () => {
   const fetchTeamData = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-
-      // Fetch all team members (only members, not managers)
+      
+      // Fetch all team members
       const { data: members } = await supabase
         .from("profiles")
-        .select("id, full_name, email, is_active, role")
+        .select("id, full_name, email, is_active")
         .eq("department_id", user.department_id)
-        .eq("role", "member")
         .is("deleted_at", null)
         .order("full_name");
 
@@ -161,7 +135,7 @@ const ManagerDashboard = () => {
         .is("deleted_at", null);
 
       const leaveUserIds = new Set(leaves?.map(l => l.user_id) || []);
-
+      
       // Combine data
       const now = new Date();
       const currentHour = now.getHours();
@@ -170,7 +144,7 @@ const ManagerDashboard = () => {
       const enrichedMembers = members?.map(member => {
         const standup = todayStandups?.find(s => s.user_id === member.id);
         const isOnLeave = leaveUserIds.has(member.id);
-
+        
         let status = "pending";
         if (isOnLeave) {
           status = "on_leave";
@@ -200,7 +174,7 @@ const ManagerDashboard = () => {
     try {
       const today = new Date();
       const days = [];
-
+      
       // Get last 7 days
       for (let i = 6; i >= 0; i--) {
         const date = new Date(today);
@@ -208,12 +182,11 @@ const ManagerDashboard = () => {
         days.push(date.toISOString().split('T')[0]);
       }
 
-      // Fetch all team members (only members)
+      // Fetch all team members
       const { data: members } = await supabase
         .from("profiles")
         .select("id, full_name")
         .eq("department_id", user.department_id)
-        .eq("role", "member")
         .is("deleted_at", null)
         .order("full_name");
 
@@ -239,7 +212,7 @@ const ManagerDashboard = () => {
         days.forEach(day => {
           const standup = standups?.find(s => s.user_id === member.id && s.date === day);
           const leave = leaves?.find(l => l.user_id === member.id && l.date === day);
-
+          
           if (leave) {
             memberDays[day] = "on_leave";
           } else if (standup) {
@@ -269,7 +242,7 @@ const ManagerDashboard = () => {
   const handleViewStandup = async (userId: string) => {
     try {
       const today = new Date().toISOString().split('T')[0];
-
+      
       const { data, error } = await supabase
         .from("daily_standups")
         .select("*, profiles(full_name)")
@@ -330,65 +303,27 @@ const ManagerDashboard = () => {
     }
   };
 
-  const generateRandomPassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setInviteForm({ ...inviteForm, password });
-    setShowPassword(true);
-    navigator.clipboard.writeText(password);
-    toast.success('Password generated and copied to clipboard!');
-  };
-
-  const generateEditPassword = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setEditNewPassword(password);
-    setShowEditPassword(true);
-    navigator.clipboard.writeText(password);
-    toast.success('Password generated and copied to clipboard!');
-  };
-
   const handleInviteMember = async () => {
     try {
-      if (!inviteForm.email || !inviteForm.full_name || !inviteForm.password) {
+      if (!inviteForm.email || !inviteForm.full_name) {
         toast.error("Please fill in all fields");
         return;
       }
 
-      if (inviteForm.password.length < 8) {
-        toast.error("Password must be at least 8 characters");
-        return;
-      }
-
-      setInviteLoading(true);
-
-      // Note: Creating users requires admin API access via edge function
-      // For now, show informational message
-      toast.info("User creation requires admin privileges. Please contact your system administrator to create new user accounts with the following details:", {
-        description: `Email: ${inviteForm.email}, Name: ${inviteForm.full_name}`,
-        duration: 10000,
-      });
-
+      // This would require a server-side function to create users
+      // For now, show a message that admin needs to create the account
+      toast.info("Please contact system administrator to create new user accounts");
+      
       setShowInviteDialog(false);
-      setInviteForm({ email: "", full_name: "", password: "" });
+      setInviteForm({ email: "", full_name: "" });
     } catch (error) {
       console.error("Error inviting member:", error);
       toast.error("Failed to invite member");
-    } finally {
-      setInviteLoading(false);
     }
   };
 
   const handleEditMember = async () => {
     try {
-      setEditLoading(true);
-
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -399,22 +334,13 @@ const ManagerDashboard = () => {
 
       if (error) throw error;
 
-      // Note: Password change requires admin API
-      if (editNewPassword) {
-        toast.info("Password changes require admin privileges. Please contact your system administrator.");
-      }
-
       toast.success("Member updated successfully");
       setShowEditDialog(false);
       setEditingMember(null);
-      setEditNewPassword("");
-      setShowPasswordField(false);
       fetchTeamData();
     } catch (error) {
       console.error("Error updating member:", error);
       toast.error("Failed to update member");
-    } finally {
-      setEditLoading(false);
     }
   };
 
@@ -451,13 +377,13 @@ const ManagerDashboard = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
       </div>
     );
   }
 
-  // Statistics calculations (only members)
+  // Statistics calculations
   const totalMembers = teamMembers.length;
   const submitted = teamMembers.filter(m => m.status === "submitted").length;
   const pending = teamMembers.filter(m => m.status === "pending").length;
@@ -468,8 +394,8 @@ const ManagerDashboard = () => {
   // Filter members
   const filteredMembers = teamMembers.filter(member => {
     if (filter !== "all" && member.status !== filter) return false;
-    if (searchQuery && !member.full_name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-      !member.email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (searchQuery && !member.full_name.toLowerCase().includes(searchQuery.toLowerCase()) && 
+        !member.email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
 
@@ -489,7 +415,7 @@ const ManagerDashboard = () => {
 
   // Get members with blockers
   const membersWithBlockers = standups.filter(s => s.blockers && s.blockers.trim().length > 0);
-
+  
   // Get members with poor compliance (missed 3+ days)
   const poorCompliance = weeklyData.filter(w => {
     const missedDays = Object.values(w.days).filter(d => d === "missed").length;
@@ -502,114 +428,169 @@ const ManagerDashboard = () => {
     : 0;
 
   return (
-    <div className="flex min-h-screen bg-accent/30">
-      <ManagerSidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        manager={{
-          full_name: user?.full_name || "",
-          department_name: department?.name || "",
-        }}
-        onLogout={handleLogout}
-      />
-
-      <main className={`flex-1 transition-all duration-300 ${sidebarOpen ? "lg:ml-64" : "lg:ml-20"}`}>
-        {/* Top Header */}
-        <header className="bg-card border-b border-border px-6 py-4 sticky top-0 z-30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 hover:bg-accent rounded-lg lg:hidden"
-              >
-                <Menu size={20} />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">{department?.name} Team</h1>
-                <p className="text-sm text-muted-foreground">Manage your team and track daily standups</p>
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border bg-card">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+              <Users className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-foreground">Manager Dashboard</h1>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-muted-foreground">Welcome, {user?.full_name}</p>
+                {department && (
+                  <Badge variant="outline" className="text-xs">
+                    {department.name}
+                  </Badge>
+                )}
               </div>
             </div>
+          </div>
+          <Button onClick={handleLogout} variant="outline">
+            <LogOut className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
+        </div>
+      </header>
 
-            <div className="flex items-center gap-4">
-              {/* Search */}
-              <div className="relative hidden md:block">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Search members..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 w-64"
-                />
-              </div>
-
-              {/* Pending indicator */}
-              {pending > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-400 rounded-full">
-                  <AlertTriangle size={16} />
-                  <span className="text-sm font-medium">{pending} pending</span>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid gap-6">
+          {/* SECTION 1: TEAM OVERVIEW */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{department?.name} Team - Daily Standup Status</CardTitle>
+              <CardDescription>{formatDate(new Date())}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Statistics Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="p-4 rounded-lg border bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Members</p>
+                      <p className="text-3xl font-bold">{totalMembers}</p>
+                    </div>
+                    <Users className="w-8 h-8 text-blue-600" />
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </header>
+                <div className="p-4 rounded-lg border bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Submitted</p>
+                      <p className="text-3xl font-bold text-green-600">{submitted}</p>
+                    </div>
+                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg border bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Pending</p>
+                      <p className="text-3xl font-bold text-yellow-600">{pending}</p>
+                    </div>
+                    <Clock className="w-8 h-8 text-yellow-600" />
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg border bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Missed</p>
+                      <p className="text-3xl font-bold text-red-600">{missed}</p>
+                    </div>
+                    <XCircle className="w-8 h-8 text-red-600" />
+                  </div>
+                </div>
+              </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard
-              icon={<Users className="w-6 h-6" />}
-              label="Total Members"
-              value={totalMembers}
-              color="blue"
-            />
-            <StatCard
-              icon={<CheckCircle className="w-6 h-6" />}
-              label="Today's Submissions"
-              value={`${submitted}/${totalMembers}`}
-              percentage={submissionRate}
-              color="green"
-            />
-            <StatCard
-              icon={<Clock className="w-6 h-6" />}
-              label="Pending"
-              value={pending}
-              color="orange"
-            />
-            <StatCard
-              icon={<XCircle className="w-6 h-6" />}
-              label="Missed"
-              value={missed}
-              color="red"
-            />
-          </div>
+              {/* Submission Rate */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">
+                    {submitted}/{totalMembers} submitted ({submissionRate}%)
+                  </p>
+                </div>
+                <div className="w-full h-3 bg-muted rounded-full overflow-hidden flex">
+                  <div 
+                    className="bg-green-600 h-full" 
+                    style={{ width: `${(submitted / totalMembers) * 100}%` }}
+                  />
+                  <div 
+                    className="bg-yellow-600 h-full" 
+                    style={{ width: `${(pending / totalMembers) * 100}%` }}
+                  />
+                  <div 
+                    className="bg-red-600 h-full" 
+                    style={{ width: `${(missed / totalMembers) * 100}%` }}
+                  />
+                </div>
+              </div>
 
-          {/* Alerts Section */}
+              {/* Quick Filters */}
+              <div className="flex flex-wrap gap-2">
+                <Button 
+                  variant={filter === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter("all")}
+                >
+                  All
+                </Button>
+                <Button 
+                  variant={filter === "submitted" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter("submitted")}
+                >
+                  Submitted
+                </Button>
+                <Button 
+                  variant={filter === "pending" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter("pending")}
+                >
+                  Pending
+                </Button>
+                <Button 
+                  variant={filter === "missed" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter("missed")}
+                >
+                  Missed
+                </Button>
+                <Button 
+                  variant={filter === "on_leave" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFilter("on_leave")}
+                >
+                  On Leave
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SECTION 5: BLOCKERS & ALERTS */}
           {(membersWithBlockers.length > 0 || poorCompliance.length > 0) && (
-            <Card className="border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/50">
+            <Card className="border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
                   <AlertTriangle className="w-5 h-5" />
-                  Attention Required
+                  ⚠️ Attention Required
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
                 {membersWithBlockers.length > 0 && (
                   <div>
-                    <p className="text-sm font-medium mb-2 text-foreground">Members with blockers today:</p>
-                    <div className="space-y-2">
+                    <p className="text-sm font-medium mb-2">Members with blockers today:</p>
+                    <div className="space-y-1">
                       {membersWithBlockers.map(standup => {
                         const member = teamMembers.find(m => m.id === standup.user_id);
                         return (
-                          <div key={standup.id} className="flex items-center justify-between p-3 bg-card rounded-lg border border-border">
-                            <span className="text-sm font-medium">{member?.full_name}</span>
-                            <Button
-                              size="sm"
+                          <div key={standup.id} className="flex items-center justify-between p-2 bg-background rounded">
+                            <span className="text-sm">{member?.full_name}</span>
+                            <Button 
+                              size="sm" 
                               variant="outline"
                               onClick={() => handleViewStandup(standup.user_id)}
                             >
-                              <Eye className="w-4 h-4 mr-2" />
                               View Details
                             </Button>
                           </div>
@@ -620,14 +601,14 @@ const ManagerDashboard = () => {
                 )}
                 {poorCompliance.length > 0 && (
                   <div>
-                    <p className="text-sm font-medium mb-2 flex items-center gap-2 text-foreground">
+                    <p className="text-sm font-medium mb-2 flex items-center gap-2">
                       <TrendingDown className="w-4 h-4" />
                       Members who missed 3+ days this week:
                     </p>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {poorCompliance.map(data => (
-                        <div key={data.user_id} className="flex items-center justify-between p-3 bg-card rounded-lg border border-border">
-                          <span className="text-sm font-medium">{data.full_name}</span>
+                        <div key={data.user_id} className="flex items-center justify-between p-2 bg-background rounded">
+                          <span className="text-sm">{data.full_name}</span>
                           <Badge variant="destructive">
                             {Object.values(data.days).filter(d => d === "missed").length} missed
                           </Badge>
@@ -640,55 +621,24 @@ const ManagerDashboard = () => {
             </Card>
           )}
 
-          {/* Team Members Table */}
+          {/* SECTION 2: TEAM MEMBERS LIST */}
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div>
-                  <CardTitle>Team Members</CardTitle>
-                  <CardDescription>{formatDate(new Date())}</CardDescription>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* Mobile Search */}
-                  <div className="relative md:hidden">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder="Search..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10 w-40"
-                    />
-                  </div>
-                  <Button onClick={() => setShowInviteDialog(true)}>
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Add Member
-                  </Button>
+              <div className="flex items-center justify-between">
+                <CardTitle>Team Members - Today's Status</CardTitle>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search by name or email..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              {/* Filters */}
-              <div className="flex flex-wrap gap-2 mb-6">
-                {[
-                  { key: "all", label: "All" },
-                  { key: "submitted", label: "Submitted" },
-                  { key: "pending", label: "Pending" },
-                  { key: "missed", label: "Missed" },
-                  { key: "on_leave", label: "On Leave" },
-                ].map(f => (
-                  <Button
-                    key={f.key}
-                    variant={filter === f.key ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setFilter(f.key as FilterType)}
-                  >
-                    {f.label}
-                  </Button>
-                ))}
-              </div>
-
-              {/* Members List */}
               <div className="space-y-3">
                 {filteredMembers.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
@@ -696,7 +646,7 @@ const ManagerDashboard = () => {
                   </div>
                 ) : (
                   filteredMembers.map(member => (
-                    <div key={member.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors">
+                    <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent">
                       <div className="flex items-center gap-4">
                         <Avatar>
                           <AvatarFallback className="bg-primary text-primary-foreground">
@@ -704,66 +654,41 @@ const ManagerDashboard = () => {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium text-foreground">{member.full_name}</p>
+                          <p className="font-medium">{member.full_name}</p>
                           <p className="text-sm text-muted-foreground">{member.email}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         {member.status === "submitted" && (
                           <Badge className="bg-green-600 hover:bg-green-700">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Submitted at {formatTime(member.submitted_at!)}
+                            ✅ Submitted at {formatTime(member.submitted_at!)}
                           </Badge>
                         )}
                         {member.status === "pending" && (
                           <Badge className="bg-yellow-600 hover:bg-yellow-700">
-                            <Clock className="w-3 h-3 mr-1" />
-                            Pending
+                            ⏳ Pending
                           </Badge>
                         )}
                         {member.status === "missed" && (
                           <Badge variant="destructive">
-                            <XCircle className="w-3 h-3 mr-1" />
-                            Missed
+                            ❌ Missed
                           </Badge>
                         )}
                         {member.status === "on_leave" && (
                           <Badge className="bg-blue-600 hover:bg-blue-700">
-                            <Palmtree className="w-3 h-3 mr-1" />
-                            On Leave
+                            🏖️ On Leave
                           </Badge>
                         )}
-                        <div className="flex items-center gap-1">
-                          {member.status === "submitted" && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleViewStandup(member.id)}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingMember(member);
-                              setShowEditDialog(true);
-                            }}
+                        {member.status === "submitted" && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleViewStandup(member.id)}
                           >
-                            <Edit className="w-4 h-4" />
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Standup
                           </Button>
-                          {member.is_active && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => handleDeactivateMember(member.id, member.full_name)}
-                            >
-                              <UserX className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -772,20 +697,22 @@ const ManagerDashboard = () => {
             </CardContent>
           </Card>
 
-          {/* Weekly Overview */}
+          {/* SECTION 3: WEEKLY OVERVIEW */}
           <Card>
             <CardHeader>
               <CardTitle>Weekly Overview (Last 7 Days)</CardTitle>
-              <CardDescription>Team compliance: {teamCompliance}% this week</CardDescription>
+              <CardDescription>
+                Team compliance: {teamCompliance}% this week
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left p-2 font-medium text-foreground">Team Member</th>
+                    <tr className="border-b">
+                      <th className="text-left p-2 font-medium">Team Member</th>
                       {weeklyData.length > 0 && Object.keys(weeklyData[0].days).map(date => (
-                        <th key={date} className="text-center p-2 font-medium text-sm text-foreground">
+                        <th key={date} className="text-center p-2 font-medium text-sm">
                           {getDayLabel(date)}
                           <br />
                           <span className="text-xs text-muted-foreground">
@@ -793,23 +720,23 @@ const ManagerDashboard = () => {
                           </span>
                         </th>
                       ))}
-                      <th className="text-center p-2 font-medium text-foreground">Compliance</th>
+                      <th className="text-center p-2 font-medium">Compliance</th>
                     </tr>
                   </thead>
                   <tbody>
                     {weeklyData.map(member => (
-                      <tr key={member.user_id} className="border-b border-border hover:bg-accent/50">
-                        <td className="p-2 font-medium text-foreground">{member.full_name}</td>
+                      <tr key={member.user_id} className="border-b hover:bg-accent">
+                        <td className="p-2 font-medium">{member.full_name}</td>
                         {Object.entries(member.days).map(([date, status]) => (
                           <td key={date} className="text-center p-2">
-                            <button
+                            <button 
                               onClick={() => status === "submitted" && handleViewWeekStandup(member.user_id, date)}
-                              className="cursor-pointer disabled:cursor-default"
+                              className="cursor-pointer"
                               disabled={status !== "submitted"}
                             >
-                              {status === "submitted" && <CheckCircle className="w-5 h-5 text-green-600 mx-auto" />}
-                              {status === "missed" && <XCircle className="w-5 h-5 text-red-600 mx-auto" />}
-                              {status === "on_leave" && <Palmtree className="w-5 h-5 text-blue-600 mx-auto" />}
+                              {status === "submitted" && <span className="text-green-600 text-xl">✅</span>}
+                              {status === "missed" && <span className="text-red-600 text-xl">❌</span>}
+                              {status === "on_leave" && <span className="text-blue-600 text-xl">🏖️</span>}
                             </button>
                           </td>
                         ))}
@@ -825,6 +752,73 @@ const ManagerDashboard = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* SECTION 4: USER MANAGEMENT */}
+          <Collapsible open={userManagementOpen} onOpenChange={setUserManagementOpen}>
+            <Card>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="cursor-pointer hover:bg-accent">
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Team Management</CardTitle>
+                    <ChevronDown className={`w-5 h-5 transition-transform ${userManagementOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="space-y-4">
+                  <div className="flex justify-end">
+                    <Button onClick={() => setShowInviteDialog(true)}>
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Invite New Member
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {teamMembers.map(member => (
+                      <div key={member.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center gap-4">
+                          <Avatar>
+                            <AvatarFallback>
+                              {member.full_name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{member.full_name}</p>
+                            <p className="text-sm text-muted-foreground">{member.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Badge variant={member.is_active ? "default" : "secondary"}>
+                            {member.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingMember(member);
+                              setShowEditDialog(true);
+                            }}
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Edit
+                          </Button>
+                          {member.is_active && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeactivateMember(member.id, member.full_name)}
+                            >
+                              <UserX className="w-4 h-4 mr-1" />
+                              Deactivate
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
         </div>
       </main>
 
@@ -834,7 +828,7 @@ const ManagerDashboard = () => {
           <DialogHeader>
             <DialogTitle>Daily Standup - {selectedStandup?.full_name}</DialogTitle>
             <DialogDescription>
-              {selectedStandup?.date && formatDate(new Date(selectedStandup.date))} •
+              {selectedStandup?.date && formatDate(new Date(selectedStandup.date))} • 
               Submitted at {selectedStandup?.submitted_at && formatTime(selectedStandup.submitted_at)}
             </DialogDescription>
           </DialogHeader>
@@ -842,22 +836,22 @@ const ManagerDashboard = () => {
             <div className="space-y-4">
               <div>
                 <Label className="font-semibold">What did you accomplish yesterday?</Label>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedStandup.yesterday_work}</p>
+                <p className="mt-1 text-sm">{selectedStandup.yesterday_work}</p>
               </div>
               <div>
                 <Label className="font-semibold">What are you working on today?</Label>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedStandup.today_plan}</p>
+                <p className="mt-1 text-sm">{selectedStandup.today_plan}</p>
               </div>
               {selectedStandup.blockers && (
                 <div>
                   <Label className="font-semibold text-orange-600">Any blockers or issues?</Label>
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedStandup.blockers}</p>
+                  <p className="mt-1 text-sm">{selectedStandup.blockers}</p>
                 </div>
               )}
               {selectedStandup.next_steps && (
                 <div>
                   <Label className="font-semibold">Next steps?</Label>
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedStandup.next_steps}</p>
+                  <p className="mt-1 text-sm">{selectedStandup.next_steps}</p>
                 </div>
               )}
             </div>
@@ -871,7 +865,7 @@ const ManagerDashboard = () => {
           <DialogHeader>
             <DialogTitle>Daily Standup - {selectedWeekStandup?.full_name}</DialogTitle>
             <DialogDescription>
-              {selectedWeekStandup?.date && formatDate(new Date(selectedWeekStandup.date))} •
+              {selectedWeekStandup?.date && formatDate(new Date(selectedWeekStandup.date))} • 
               Submitted at {selectedWeekStandup?.submitted_at && formatTime(selectedWeekStandup.submitted_at)}
             </DialogDescription>
           </DialogHeader>
@@ -879,22 +873,22 @@ const ManagerDashboard = () => {
             <div className="space-y-4">
               <div>
                 <Label className="font-semibold">What did you accomplish yesterday?</Label>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedWeekStandup.yesterday_work}</p>
+                <p className="mt-1 text-sm">{selectedWeekStandup.yesterday_work}</p>
               </div>
               <div>
                 <Label className="font-semibold">What are you working on today?</Label>
-                <p className="mt-1 text-sm text-muted-foreground">{selectedWeekStandup.today_plan}</p>
+                <p className="mt-1 text-sm">{selectedWeekStandup.today_plan}</p>
               </div>
               {selectedWeekStandup.blockers && (
                 <div>
                   <Label className="font-semibold text-orange-600">Any blockers or issues?</Label>
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedWeekStandup.blockers}</p>
+                  <p className="mt-1 text-sm">{selectedWeekStandup.blockers}</p>
                 </div>
               )}
               {selectedWeekStandup.next_steps && (
                 <div>
                   <Label className="font-semibold">Next steps?</Label>
-                  <p className="mt-1 text-sm text-muted-foreground">{selectedWeekStandup.next_steps}</p>
+                  <p className="mt-1 text-sm">{selectedWeekStandup.next_steps}</p>
                 </div>
               )}
             </div>
@@ -906,12 +900,22 @@ const ManagerDashboard = () => {
       <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add New Team Member</DialogTitle>
+            <DialogTitle>Invite New Member</DialogTitle>
             <DialogDescription>
               Add a new member to the {department?.name} team
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <Label htmlFor="invite-email">Email *</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                placeholder="member@company.com"
+              />
+            </div>
             <div>
               <Label htmlFor="invite-name">Full Name *</Label>
               <Input
@@ -923,46 +927,6 @@ const ManagerDashboard = () => {
               />
             </div>
             <div>
-              <Label htmlFor="invite-email">Email Address *</Label>
-              <Input
-                id="invite-email"
-                type="email"
-                value={inviteForm.email}
-                onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-                placeholder="john.doe@company.com"
-              />
-            </div>
-            <div>
-              <Label htmlFor="invite-password">Password *</Label>
-              <div className="relative">
-                <Input
-                  id="invite-password"
-                  type={showPassword ? "text" : "password"}
-                  value={inviteForm.password}
-                  onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
-                  placeholder="Minimum 8 characters"
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Password must be at least 8 characters
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={generateRandomPassword}
-              className="text-sm text-primary hover:text-primary/80 font-medium"
-            >
-              Generate Secure Password
-            </button>
-            <div>
               <Label>Department</Label>
               <Input
                 type="text"
@@ -971,22 +935,12 @@ const ManagerDashboard = () => {
                 className="bg-muted"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-4">
+            <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowInviteDialog(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleInviteMember} disabled={inviteLoading}>
-                {inviteLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4 mr-2" />
-                    Add Member
-                  </>
-                )}
+              <Button onClick={handleInviteMember}>
+                Send Invitation
               </Button>
             </div>
           </div>
@@ -1014,92 +968,39 @@ const ManagerDashboard = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="edit-email">Email Address</Label>
+                <Label htmlFor="edit-email">Email (cannot be changed)</Label>
                 <Input
                   id="edit-email"
                   type="email"
                   value={editingMember.email}
                   disabled
-                  className="bg-muted"
+                  className="bg-muted cursor-not-allowed"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Email cannot be changed. Create a new account if needed.
                 </p>
               </div>
-
-              {/* Change Password Section */}
-              <div className="border-t border-border pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <Label>Change Password</Label>
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordField(!showPasswordField)}
-                    className="text-sm text-primary hover:text-primary/80"
-                  >
-                    {showPasswordField ? 'Cancel' : 'Change Password'}
-                  </button>
-                </div>
-
-                {showPasswordField && (
-                  <div className="space-y-3">
-                    <div className="relative">
-                      <Input
-                        type={showEditPassword ? "text" : "password"}
-                        value={editNewPassword}
-                        onChange={(e) => setEditNewPassword(e.target.value)}
-                        placeholder="Enter new password"
-                        className="pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowEditPassword(!showEditPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={generateEditPassword}
-                      className="text-sm text-primary hover:text-primary/80"
-                    >
-                      Generate Secure Password
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Active Status */}
-              <div className="flex items-center justify-between border-t border-border pt-4">
-                <div>
-                  <p className="font-medium text-foreground">Active Status</p>
-                  <p className="text-sm text-muted-foreground">Allow this member to log in</p>
-                </div>
-                <Switch
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="edit-active"
                   checked={editingMember.is_active}
-                  onCheckedChange={(checked) => setEditingMember({ ...editingMember, is_active: checked })}
+                  onChange={(e) => setEditingMember({ ...editingMember, is_active: e.target.checked })}
+                  className="w-4 h-4"
                 />
+                <Label htmlFor="edit-active" className="cursor-pointer">
+                  Active Status
+                </Label>
               </div>
-
-              <div className="flex justify-end gap-2 pt-4">
+              <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => {
                   setShowEditDialog(false);
                   setEditingMember(null);
-                  setEditNewPassword("");
-                  setShowPasswordField(false);
                 }}>
                   Cancel
                 </Button>
-                <Button onClick={handleEditMember} disabled={editLoading}>
-                  {editLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    "Save Changes"
-                  )}
+                <Button onClick={handleEditMember}>
+                  Save Changes
                 </Button>
               </div>
             </div>
