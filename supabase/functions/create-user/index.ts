@@ -50,15 +50,24 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Check if requesting user is superadmin
-    const { data: requestingProfile, error: profileError } = await supabaseClient
-      .from('profiles')
+    // Create admin client for checking roles in user_roles table (bypasses RLS)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+
+    // Check if requesting user is superadmin using the user_roles table
+    const { data: userRoles, error: roleError } = await supabaseAdmin
+      .from('user_roles')
       .select('role')
-      .eq('id', requestingUser.id)
+      .eq('user_id', requestingUser.id)
+      .eq('role', 'superadmin')
       .single();
 
-    if (profileError || !requestingProfile || requestingProfile.role !== 'superadmin') {
-      console.error('User is not superadmin:', profileError);
+    if (roleError || !userRoles) {
+      console.error('User is not superadmin:', roleError);
       return new Response(
         JSON.stringify({ error: 'Only superadmins can create users' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -81,14 +90,6 @@ Deno.serve(async (req) => {
     const password = body.password || generateRandomPassword(12);
     const wasGenerated = !body.password;
 
-    // Create admin client with service role key (server-side only)
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-
     // Create the user
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: body.email,
@@ -110,6 +111,22 @@ Deno.serve(async (req) => {
     }
 
     console.log('User created successfully:', authUser.user.id);
+
+    // Explicitly insert into user_roles table as a safety measure
+    // The handle_new_user trigger should handle this, but we do it explicitly too
+    const { error: roleInsertError } = await supabaseAdmin
+      .from('user_roles')
+      .upsert({
+        user_id: authUser.user.id,
+        role: body.role
+      }, {
+        onConflict: 'user_id,role'
+      });
+
+    if (roleInsertError) {
+      console.error('Error inserting user role:', roleInsertError);
+      // Don't fail the whole operation, the trigger might have handled it
+    }
 
     // Return success with user data
     return new Response(
