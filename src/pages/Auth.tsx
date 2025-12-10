@@ -28,33 +28,36 @@ const Auth = () => {
 
   const redirectBasedOnRole = async (userId: string) => {
     try {
-      console.log("Fetching profile for user ID:", userId);
-      
-      const { data: profile, error } = await supabase
+      // First check if user is active
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("id, email, full_name, role, department_id, is_active, deleted_at")
+        .select("id, is_active")
         .eq("id", userId)
         .is("deleted_at", null)
         .single();
 
-      console.log("Profile fetch result:", { profile, error });
-
-      if (error) {
-        console.error("Profile fetch error details:", error);
-        throw error;
-      }
-
-      if (!profile) {
+      if (profileError) {
         throw new Error("Profile not found");
       }
 
-      if (!profile.is_active) {
+      if (!profile?.is_active) {
         throw new Error("Account is inactive. Please contact your administrator.");
       }
 
-      console.log("User role:", profile.role);
+      // Fetch role from user_roles table (secure source of truth)
+      const { data: userRole, error: roleError } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .order("role", { ascending: true }) // superadmin < manager < member alphabetically works for priority
+        .limit(1)
+        .single();
 
-      switch (profile.role) {
+      if (roleError || !userRole) {
+        throw new Error("User role not found");
+      }
+
+      switch (userRole.role) {
         case "superadmin":
           navigate("/admin/dashboard");
           break;
@@ -65,11 +68,9 @@ const Auth = () => {
           navigate("/member/dashboard");
           break;
         default:
-          console.error("Unknown role:", profile.role);
           navigate("/");
       }
     } catch (error: any) {
-      console.error("Error in redirectBasedOnRole:", error);
       toast.error(error.message || "Failed to fetch user profile");
     }
   };
@@ -102,26 +103,20 @@ const Auth = () => {
     setIsLoading(true);
 
     try {
-      console.log("Attempting sign in for:", email);
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      console.log("Sign in response:", { user: data?.user?.id, session: !!data?.session, error });
-
       if (error) throw error;
 
       if (data.user && data.session) {
-        console.log("Authentication successful, user ID:", data.user.id);
         toast.success("Welcome back!");
         await redirectBasedOnRole(data.user.id);
       } else {
         throw new Error("No user or session returned");
       }
     } catch (error: any) {
-      console.error("Sign in error details:", error);
       toast.error(error.message || "Invalid email or password");
     } finally {
       setIsLoading(false);
