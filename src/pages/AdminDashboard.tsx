@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, supabaseAdmin } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -309,50 +309,27 @@ const AdminDashboard = () => {
         return;
       }
 
-      // Generate password if not provided
-      const password = newUserForm.password || generateRandomPassword(12);
-      const wasGenerated = !newUserForm.password;
-
-      console.log("⚠️ Service role key in use - ensure this is only accessible by superadmins");
-
-      // 1. Create auth user using admin client
-      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: newUserForm.email,
-        password: password,
-        email_confirm: true, // Auto-confirm email
-        user_metadata: {
+      // Call secure edge function to create user
+      const { data: createResult, error: createError } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: newUserForm.email,
+          password: newUserForm.password || undefined,
           full_name: newUserForm.full_name,
           role: newUserForm.role,
-          department_id: newUserForm.department_id || null
+          department_id: newUserForm.department_id || undefined
         }
       });
 
-      if (authError) {
-        throw authError;
+      if (createError) {
+        throw new Error(createError.message);
       }
 
-      // 2. Verify profile was created (should happen via trigger)
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", authUser.user.id)
-        .single();
-
-      if (!profile) {
-        // If trigger didn't create profile, create manually
-        const { error: insertError } = await supabase
-          .from("profiles")
-          .insert({
-            id: authUser.user.id,
-            email: newUserForm.email,
-            full_name: newUserForm.full_name,
-            role: newUserForm.role,
-            department_id: newUserForm.department_id || null,
-            is_active: true
-          });
-        
-        if (insertError) throw insertError;
+      if (!createResult.success) {
+        throw new Error(createResult.error || 'Failed to create user');
       }
+
+      const wasGenerated = createResult.wasGenerated;
+      const password = createResult.password;
 
       // 3. Get department name for audit log
       let departmentName = "N/A";
@@ -366,7 +343,7 @@ const AdminDashboard = () => {
         actor_id: user?.id || "",
         action: "created",
         target_type: "user",
-        target_id: authUser.user.id,
+        target_id: createResult.user.id,
         new_values: {
           email: newUserForm.email,
           full_name: newUserForm.full_name,
