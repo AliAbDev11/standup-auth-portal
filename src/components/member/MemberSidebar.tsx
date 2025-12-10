@@ -22,6 +22,7 @@ const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "profile", label: "Profile", icon: User },
   { id: "projects", label: "Projects", icon: FolderKanban },
+  { id: "submissions", label: "Submissions", icon: Clipboard },
 ];
 
 const MemberSidebar = ({ collapsed, onToggle, currentView, onViewChange }: MemberSidebarProps) => {

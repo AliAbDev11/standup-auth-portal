@@ -9,6 +9,7 @@ import MemberHeader from "@/components/member/MemberHeader";
 import DashboardView from "@/components/member/DashboardView";
 import ProfileView from "@/components/member/ProfileView";
 import ProjectsView from "@/components/member/ProjectsView";
+import SubmissionsView from "@/components/member/SubmissionsView";
 
 type SubmissionMode = "text" | "audio" | "image";
 type SubmissionStatus = "submitted" | "pending" | "missed" | "on_leave" | "weekend";
@@ -50,6 +51,8 @@ const MemberDashboard = () => {
   });
   const [streak, setStreak] = useState(0);
   const [totalSubmissions, setTotalSubmissions] = useState(0);
+  const [thisMonthSubmissions, setThisMonthSubmissions] = useState(0);
+  const [complianceRate, setComplianceRate] = useState(0);
   const [showAudioInstructions, setShowAudioInstructions] = useState(() => {
     const hideCount = parseInt(localStorage.getItem("audioInstructionViews") || "0");
     return hideCount < 3 && localStorage.getItem("hideInstructions") !== "true";
@@ -111,7 +114,7 @@ const MemberDashboard = () => {
       checkTodayStatus();
       fetchHistory();
       fetchStreak();
-      fetchTotalSubmissions();
+      fetchStats();
     }
   }, [user]);
 
@@ -248,16 +251,53 @@ const MemberDashboard = () => {
     }
   };
 
-  const fetchTotalSubmissions = async () => {
+  const fetchStats = async () => {
     if (!user) return;
     
-    const { count } = await supabase
+    // Total submissions
+    const { count: total } = await supabase
       .from("daily_standups")
       .select("*", { count: 'exact', head: true })
       .eq("user_id", user.id)
       .eq("status", "submitted");
     
-    setTotalSubmissions(count || 0);
+    setTotalSubmissions(total || 0);
+
+    // This month submissions
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    
+    const { count: monthCount } = await supabase
+      .from("daily_standups")
+      .select("*", { count: 'exact', head: true })
+      .eq("user_id", user.id)
+      .eq("status", "submitted")
+      .gte("date", startOfMonth.toISOString().split('T')[0]);
+    
+    setThisMonthSubmissions(monthCount || 0);
+
+    // Calculate compliance rate (last 30 weekdays)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    let weekdays = 0;
+    const tempDate = new Date(thirtyDaysAgo);
+    while (tempDate <= new Date()) {
+      const day = tempDate.getDay();
+      if (day !== 0 && day !== 6) weekdays++;
+      tempDate.setDate(tempDate.getDate() + 1);
+    }
+
+    const { count: recentSubmissions } = await supabase
+      .from("daily_standups")
+      .select("*", { count: 'exact', head: true })
+      .eq("user_id", user.id)
+      .eq("status", "submitted")
+      .gte("date", thirtyDaysAgo.toISOString().split('T')[0]);
+
+    const rate = weekdays > 0 ? Math.round(((recentSubmissions || 0) / weekdays) * 100) : 0;
+    setComplianceRate(Math.min(rate, 100));
   };
 
   const fetchHistory = async () => {
@@ -342,6 +382,7 @@ const MemberDashboard = () => {
       checkTodayStatus();
       fetchHistory();
       fetchStreak();
+      fetchStats();
     } catch (error) {
       console.error("Error submitting standup:", error);
       toast.error("Failed to submit standup");
@@ -477,6 +518,7 @@ const MemberDashboard = () => {
       await checkTodayStatus();
       await fetchHistory();
       await fetchStreak();
+      await fetchStats();
       
       setAudioBlob(null);
       setRecordingDuration(0);
@@ -575,6 +617,7 @@ const MemberDashboard = () => {
       await checkTodayStatus();
       await fetchHistory();
       await fetchStreak();
+      await fetchStats();
       
       setImageFile(null);
       setImagePreview(null);
@@ -736,9 +779,33 @@ const MemberDashboard = () => {
               submittedAt={submittedAt}
               streak={streak}
               testMode={testMode}
-              canSubmit={canSubmit}
               isWeekend={isWeekend()}
               timeRemaining={timeRemaining}
+              totalSubmissions={totalSubmissions}
+              complianceRate={complianceRate}
+              thisMonthSubmissions={thisMonthSubmissions}
+              formatSubmittedTime={formatSubmittedTime}
+            />
+          )}
+
+          {currentView === "profile" && (
+            <ProfileView
+              user={user}
+              departmentName={departmentName}
+              streak={streak}
+              totalSubmissions={totalSubmissions}
+            />
+          )}
+
+          {currentView === "projects" && (
+            <ProjectsView user={user} />
+          )}
+
+          {currentView === "submissions" && (
+            <SubmissionsView
+              canSubmit={canSubmit}
+              isWeekend={isWeekend()}
+              todayStatus={todayStatus}
               submissionMode={submissionMode}
               setSubmissionMode={setSubmissionMode}
               standupData={standupData}
@@ -770,19 +837,6 @@ const MemberDashboard = () => {
               formatDate={formatDate}
               formatSubmittedTime={formatSubmittedTime}
             />
-          )}
-
-          {currentView === "profile" && (
-            <ProfileView
-              user={user}
-              departmentName={departmentName}
-              streak={streak}
-              totalSubmissions={totalSubmissions}
-            />
-          )}
-
-          {currentView === "projects" && (
-            <ProjectsView user={user} />
           )}
         </main>
       </div>
