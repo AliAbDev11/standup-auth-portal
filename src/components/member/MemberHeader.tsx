@@ -1,8 +1,7 @@
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { LogOut, FlaskConical, Settings, Menu } from "lucide-react";
+import { LogOut, FlaskConical, Menu, User } from "lucide-react";
 
 interface MemberHeaderProps {
   user: any;
@@ -21,8 +20,6 @@ const MemberHeader = ({
   onLogout,
   onMobileMenuToggle 
 }: MemberHeaderProps) => {
-  const navigate = useNavigate();
-
   return (
     <header className="h-16 bg-card border-b border-border flex items-center justify-between px-4 lg:px-6 sticky top-0 z-10">
       <div className="flex items-center gap-3">
@@ -59,14 +56,10 @@ const MemberHeader = ({
           />
         </div>
 
-        <Button 
-          onClick={() => navigate('/member/settings')} 
-          variant="ghost" 
-          size="icon"
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <Settings className="w-5 h-5" />
-        </Button>
+        {/* User Profile Icon */}
+        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+          <User className="w-5 h-5 text-primary" />
+        </div>
 
         <Button 
           onClick={onLogout} 
