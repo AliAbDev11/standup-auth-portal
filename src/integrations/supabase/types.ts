@@ -351,27 +351,6 @@ export type Database = {
         }
         Relationships: []
       }
-      user_roles: {
-        Row: {
-          created_at: string | null
-          id: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id?: string
-        }
-        Relationships: []
-      }
     }
     Views: {
       active_users_view: {
@@ -417,22 +396,10 @@ export type Database = {
       }
     }
     Functions: {
-      get_user_role: {
-        Args: { _user_id: string }
-        Returns: Database["public"]["Enums"]["app_role"]
-      }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
       restore_user: { Args: { user_id_param: string }; Returns: undefined }
       soft_delete_user: { Args: { user_id_param: string }; Returns: undefined }
     }
     Enums: {
-      app_role: "superadmin" | "manager" | "member"
       leave_status: "pending" | "approved" | "rejected"
       leave_type: "vacation" | "sick" | "other"
       standup_status: "submitted" | "missed"
@@ -564,7 +531,6 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["superadmin", "manager", "member"],
       leave_status: ["pending", "approved", "rejected"],
       leave_type: ["vacation", "sick", "other"],
       standup_status: ["submitted", "missed"],

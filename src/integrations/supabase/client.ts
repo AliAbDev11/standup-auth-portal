@@ -4,6 +4,7 @@ import type { Database } from './types';
 
 const SUPABASE_URL = "https://gnjmnxvzeqscuatjtuua.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imduam1ueHZ6ZXFzY3VhdGp0dXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0NzYwMDgsImV4cCI6MjA3NzA1MjAwOH0.I_TvkM0lsWM3vH4PXopoXAKHWu4-RjgyEFgNwCFAUVE";
+const SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imduam1ueHZ6ZXFzY3VhdGp0dXVhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MTQ3NjAwOCwiZXhwIjoyMDc3MDUyMDA4fQ.pqpA7RoyRZrYasiQYSy0cQdAk7SFSV5Dq8wm9FlDQoE";
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -14,5 +15,14 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+  }
+});
+
+// Admin client (service_role key) - ONLY for superadmin operations
+// ⚠️ WARNING: Service role key bypasses RLS - ensure this is only accessible by superadmins
+export const supabaseAdmin = createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
   }
 });
